@@ -1,0 +1,4 @@
+.env
+
+extern/hoomd-blue
+extern/.build

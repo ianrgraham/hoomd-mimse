@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rm -rf .build/hoomd
+
+cmake -B .build/hoomd -G Ninja -S hoomd-blue -DENABLE_GPU=$ENABLE_GPU -DBUILD_HPMC=OFF -DBUILD_METAL=OFF -DENABLE_TBB=OFF -DCMAKE_CUDA_FLAGS="--compiler-bindir=$CC" -DCUDA_ARCH_LIST=$CUDAARCHS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_COMPILER=$CXX -DCMAKE_BUILD_TYPE=RelWithDebInfo
