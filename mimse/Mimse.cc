@@ -184,7 +184,7 @@ void Mimse::pruneBiases(Scalar delta)
         }
     
     // remove backwards
-    for (unsigned int i = to_remove.size(); i > 0; i--)
+    for (unsigned long int i = to_remove.size(); i > 0; i--)
         {
         m_biases_pos.erase(m_biases_pos.begin() + to_remove[i-1]);
         }
@@ -252,15 +252,19 @@ void Mimse::computeForces(uint64_t timestep)
             continue;
 
         // compute the force and apply it
-        Scalar rinv = fast::rsqrt(square_norm);
-        Scalar term = (1 - square_norm / (m_sigma * m_sigma));
-        Scalar force_divr = m_epsilon * rinv * term * term;
+        Scalar rinv = slow::rsqrt(square_norm);
+        Scalar sigma_square = m_sigma * m_sigma;
+        Scalar term = (1 - square_norm / (sigma_square));
+        Scalar force_divr = 4.0 * m_epsilon * term / sigma_square;
+
+        // Scalar energy_divr = m_epsilon * term * term * rinv;  // TODO: uncomment if we want to compute the energy
 
         for (unsigned int i = 0; i < m_pdata->getN(); i++)
             {
             h_force.data[i].x += h_bias_disp.data[i].x * force_divr;
             h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
             h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
+            // h_force.data[i].w += energy_divr;  // TODO: this is not quite correct
             }
         }
     }

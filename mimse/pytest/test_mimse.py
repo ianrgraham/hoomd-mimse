@@ -52,7 +52,7 @@ def test_mimse(simulation_factory, one_particle_snapshot_factory):
         sim.run(10000)
 
     snap = sim.state.get_snapshot()
-    compare = np.array([0.90043, 0, 0])
+    compare = np.array([0.900713, 0, 0])
     if snap.communicator.rank == 0:
         np.testing.assert_array_almost_equal(snap.particles.position[0],
                                              compare,
