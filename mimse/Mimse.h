@@ -36,15 +36,48 @@ namespace hoomd
  */
 class Mimse : public ForceCompute
     {
-    // TODO
-    // We need 
 
     public:
     //! Constructor
-    Mimse(std::shared_ptr<SystemDefinition> sysdef);
+    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon);
+
+    ~Mimse();
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);
+
+    void pushBackBias(const GlobalArray<Scalar4> &bias_pos);
+
+    void pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos);
+
+    void popBackBias();
+
+    void popFrontBias();
+
+    void clearBiases();
+
+    pybind11::object getBiases();
+
+    size_t size();
+
+    void randomKick(Scalar delta);
+
+    void pruneBiases(Scalar delta);
+
+    void setSigma(Scalar sigma);
+
+    void setEpsilon(Scalar epsilon);
+
+    Scalar getSigma();
+
+    Scalar getEpsilon();
+
+    private:
+    std::deque<GlobalArray<Scalar4>> m_biases_pos;
+    GlobalArray<Scalar3> m_bias_disp;
+    Scalar m_sigma;
+    Scalar m_epsilon;
+
     };
 
 namespace detail
@@ -68,7 +101,7 @@ class MimseGPU : public Mimse
     {
     public:
     //! Constructor
-    MimseGPU(std::shared_ptr<SystemDefinition> sysdef);
+    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon);
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);

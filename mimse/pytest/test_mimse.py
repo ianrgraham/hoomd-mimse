@@ -2,53 +2,110 @@
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
 # Import the plugin module.
-from hoomd import updater_plugin
+from hoomd.mimse import mimse
 
 # Import the hoomd Python package.
 import hoomd
 from hoomd import operation
+from hoomd.conftest import *
 
 import itertools
 import pytest
 import numpy as np
 
-# Generate a list of velocities to test against. Hard-coded values are also
-# appropriate here.
-v_comp = np.linspace(-5.0, 5.0, 3)
 
-# An array of 3-tuples that will be our testing velocities.
-velocities = list(itertools.product(v_comp, v_comp, v_comp))
-
-
-# Use pytest decorator to automate testing over the sequence of parameters.
-@pytest.mark.parametrize("vel", velocities)
-def test_updater(simulation_factory, one_particle_snapshot_factory, vel):
+# @pytest.mark.parametrize("vel", [[0, 0, 0]])
+def test_mimse(simulation_factory, one_particle_snapshot_factory):
 
     # `one_particle_snapshot_factory` and `simulation_factory` are pytest
     # fixtures defined in hoomd/conftest.py. These factories automatically
     # handle iterating tests over different CPU and GPU devices.
     snap = one_particle_snapshot_factory()
+
     if snap.communicator.rank == 0:
-        snap.particles.velocity[0] = vel
-    sim = simulation_factory(snap)
+        snap.particles.position[0] = [0, 0, 0]
+        snap.particles.velocity[0] = [0, 0, 0]
+    sim: hoomd.Simulation = simulation_factory(snap)
 
-    # Add our plugin to the simulation.
-    updater: operation.Updater = updater_plugin.update.ExampleUpdater(
-        hoomd.trigger.On(sim.timestep))
-    sim.operations.updaters.append(updater)
+    # Setup FIRE sim with Mimse force
+    fire = hoomd.md.minimize.FIRE(1e-3, 1e-7, 1.0, 1e-5)
 
-    # Test that the initial velocity matches our input.
+    nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
+    force = mimse.Mimse(1.0, 1.0)
+    
+    fire.forces.append(force)
+    fire.methods.append(nve)
+    sim.operations.integrator = fire
+
+    # Test that the initial snapshot is correct
     sim.run(0)
     snap = sim.state.get_snapshot()
     if snap.communicator.rank == 0:
-        velocity = snap.particles.velocity[0]
-        np.testing.assert_array_almost_equal(velocity, vel, decimal=6)
-
-    # Test that the velocity is properly zeroed after the update.
-    sim.run(1)
-    snap = sim.state.get_snapshot()
-    if snap.communicator.rank == 0:
-        velocity = snap.particles.velocity[0]
-        np.testing.assert_array_almost_equal(velocity,
-                                             np.array([0.0, 0.0, 0.0]),
+        np.testing.assert_array_almost_equal(snap.particles.position[0],
+                                             np.array([0, 0, 0]),
                                              decimal=6)
+
+    bias_pos = np.array([[-0.1, 0, 0]])
+    force.push_back(bias_pos)
+
+    while not fire.converged:        
+        sim.run(10000)
+
+    snap = sim.state.get_snapshot()
+    compare = np.array([0.90043, 0, 0])
+    if snap.communicator.rank == 0:
+        np.testing.assert_array_almost_equal(snap.particles.position[0],
+                                             compare,
+                                             decimal=6)
+
+
+def test_mimse_push_and_prune(simulation_factory, one_particle_snapshot_factory):
+
+    # `one_particle_snapshot_factory` and `simulation_factory` are pytest
+    # fixtures defined in hoomd/conftest.py. These factories automatically
+    # handle iterating tests over different CPU and GPU devices.
+    snap = one_particle_snapshot_factory()
+
+    if snap.communicator.rank == 0:
+        snap.particles.position[0] = [0, 0, 0]
+        snap.particles.velocity[0] = [0, 0, 0]
+    sim: hoomd.Simulation = simulation_factory(snap)
+
+    # Setup FIRE sim with Mimse force
+    fire = hoomd.md.minimize.FIRE(1e-3, 1e-7, 1.0, 1e-5)
+
+    nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
+    force = mimse.Mimse(1.0, 1.0)
+    
+    fire.forces.append(force)
+    fire.methods.append(nve)
+    sim.operations.integrator = fire
+
+    # Test that the initial snapshot is correct
+    sim.run(0)
+
+    bias_pos = np.array([[-2, 0, 0]])
+    force.push_back(bias_pos)
+    if snap.communicator.rank == 0:
+        bias = force.get_biases()
+        assert len(bias) == 1
+        assert bias[0][0, 0] == -2
+
+    bias_pos = np.array([[0.5, 0, 0]])
+    force.push_back(bias_pos)
+    if snap.communicator.rank == 0:
+        bias = force.get_biases()
+        assert len(bias) == 2
+        assert bias[1][0, 0] == 0.5
+
+    bias_pos = np.array([[1, 1, 0]])
+    force.push_back(bias_pos)
+    bias_pos = np.array([[0, 0.25, 0]])
+    force.push_back(bias_pos)
+
+    force.prune_biases(1.0)
+    if snap.communicator.rank == 0:
+        bias = force.get_biases()
+        assert len(bias) == 2
+        np.testing.assert_array_almost_equal(bias[0][0], np.array([0.5, 0, 0]))
+        np.testing.assert_array_almost_equal(bias[1][0], np.array([0, 0.25, 0]))

@@ -23,4 +23,4 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # Add subdirectories
-add_subdirectory(src)
+add_subdirectory(mimse)

@@ -6,6 +6,8 @@
 #include "Mimse.cuh"
 #endif
 
+#include <algorithm>
+
 /*! \file Mimse.cc
     \brief Definition of Mimse
 */
@@ -17,30 +19,250 @@ namespace hoomd
     {
 /*! \param sysdef System to zero the velocities of
  */
-Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef)
-    : ForceCompute(sysdef)
+Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
+    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon)
     {
+    GlobalArray<Scalar3> bias_disp(m_pdata->getN(), m_exec_conf);
+    m_bias_disp.swap(bias_disp);
+    TAG_ALLOCATION(m_bias_disp);
+    }
+
+Mimse::~Mimse()
+    {
+    m_exec_conf->msg->notice(5) << "Destroying Mimse" << std::endl;
+    
+    }
+
+void Mimse::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
+    {
+    unsigned int N = m_pdata->getN();
+    assert(bias_pos.getNumElements() == N);
+    // make a copy
+    GlobalArray<Scalar4> copy(N, m_exec_conf);
+    ArrayHandle<Scalar4> h_copy(copy, access_location::host, access_mode::overwrite);
+    ArrayHandle<Scalar4> h_biases_pos(bias_pos, access_location::host, access_mode::read);
+
+    // Assumes the bias_pos array has the same tags as the particle data
+    ArrayHandle<unsigned int> h_rtag(m_pdata->getRTags(),
+                                    access_location::host,
+                                    access_mode::read);
+    for (unsigned int tag = 0; tag < N; tag++)
+        {
+        unsigned int i = h_rtag.data[tag];
+        h_copy.data[tag] = h_biases_pos.data[i];
+        }
+    m_biases_pos.push_back(copy);
+    }
+
+void Mimse::pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos)
+    {
+    unsigned int N = m_pdata->getN();
+    // assert array shape is N x 3
+    pybind11::buffer_info info = bias_pos.request();
+    assert(info.ndim == 2);
+    assert(info.shape[0] == N);
+    assert(info.shape[1] == 3);
+
+    // make a copy
+    GlobalArray<Scalar4> copy(N, m_exec_conf);
+    ArrayHandle<Scalar4> h_copy(copy, access_location::host, access_mode::overwrite);
+    for (unsigned int i = 0; i < N; i++)
+        {
+        h_copy.data[i] = make_scalar4(((Scalar*)info.ptr)[3*i], ((Scalar*)info.ptr)[3*i+1], ((Scalar*)info.ptr)[3*i+2], 1.0);
+        }
+    m_biases_pos.push_back(copy);
+    }
+
+void Mimse::popBackBias()
+    {
+    m_biases_pos.pop_back();
+    }
+
+void Mimse::popFrontBias()
+    {
+    m_biases_pos.pop_front();
+    }
+
+void Mimse::clearBiases()
+    {
+    m_biases_pos.clear();
+    }
+
+// TODO: this is definitely wrong under MPI
+pybind11::object Mimse::getBiases()
+    {
+    bool root = true;
+#ifdef ENABLE_MPI
+    // if we are not the root processor, return None
+    root = m_exec_conf->isRoot();
+#endif
+
+    std::vector<size_t> dims(2);
+    if (root)
+        {
+        dims[0] = m_pdata->getNGlobal();
+        dims[1] = 3;
+        }
+    else
+        {
+        dims[0] = 0;
+        dims[1] = 0;
+        }
+
+    if (!root)
+        return pybind11::none();
+
+    pybind11::list biases;
+
+    for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+        {
+        ArrayHandle<Scalar4> h_bias(m_biases_pos[j], access_location::host, access_mode::read);
+        
+        std::vector<vec3<double>> global_bias(dims[0]);
+
+        for (unsigned int i = 0; i < dims[0]; i++)
+            {
+            global_bias[i] = vec3<double>(h_bias.data[i].x, h_bias.data[i].y, h_bias.data[i].z);
+            }
+
+        pybind11::array_t<Scalar> bias_pos(dims, (double*)global_bias.data());
+
+        biases.append(bias_pos);
+        }
+    
+    return biases;
+    }
+
+size_t Mimse::size()
+    {
+    return m_biases_pos.size();
+    }
+
+void Mimse::randomKick(Scalar delta)
+    {
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::readwrite);
+
+    for (unsigned int i = 0; i < m_pdata->getN(); i++)
+        {
+        h_pos.data[i].x += delta * (Scalar(rand()) / Scalar(RAND_MAX) - Scalar(0.5));
+        h_pos.data[i].y += delta * (Scalar(rand()) / Scalar(RAND_MAX) - Scalar(0.5));
+        h_pos.data[i].z += delta * (Scalar(rand()) / Scalar(RAND_MAX) - Scalar(0.5));
+        }
+    }
+
+void Mimse::pruneBiases(Scalar delta)
+    {
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::readwrite);
+
+    ArrayHandle<unsigned int> h_rtag(m_pdata->getRTags(),
+                                    access_location::host,
+                                    access_mode::read);
+
+    std::vector<unsigned int> to_remove;
+
+    for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+        {
+        Scalar square_norm = 0.0;
+        ArrayHandle<Scalar4> h_biases_pos(m_biases_pos[j], access_location::host, access_mode::read);
+
+        // compute the bias displacement
+        for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+            {
+            unsigned int i = h_rtag.data[tag];
+            Scalar4 bias_pos = h_biases_pos.data[tag];
+            Scalar3 dr = make_scalar3(bias_pos.x - h_pos.data[i].x, bias_pos.y - h_pos.data[i].y, bias_pos.z - h_pos.data[i].z);
+            square_norm += dot(dr, dr);
+            
+            }
+        // if the norm is greater than sigma, skip this bias
+        if (square_norm >= delta * delta)
+            to_remove.push_back(j);
+        }
+    
+    // remove backwards
+    for (unsigned int i = to_remove.size(); i > 0; i--)
+        {
+        m_biases_pos.erase(m_biases_pos.begin() + to_remove[i-1]);
+        }
+    }
+
+void Mimse::setSigma(Scalar sigma)
+    {
+    m_sigma = sigma;
+    }
+
+void Mimse::setEpsilon(Scalar epsilon)
+    {
+    m_epsilon = epsilon;
+    }
+
+Scalar Mimse::getSigma()
+    {
+    return m_sigma;
+    }
+
+Scalar Mimse::getEpsilon()
+    {
+    return m_epsilon;
     }
 
 /*! Perform the needed calculations to zero the system's velocity
     \param timestep Current time step of the simulation
 */
-void Mimse::computeForce(uint64_t timestep)
+void Mimse::computeForces(uint64_t timestep)
     {
-    // Updater::update(timestep);
-    // // access the particle data for writing on the CPU
-    // assert(m_pdata);
-    // ArrayHandle<Scalar4> h_vel(m_pdata->getVelocities(),
-    //                            access_location::host,
-    //                            access_mode::readwrite);
+    assert(m_pdata);
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::read);
 
-    // // zero the velocity of every particle
-    // for (unsigned int i = 0; i < m_pdata->getN(); i++)
-    //     {
-    //     h_vel.data[i].x = Scalar(0.0);
-    //     h_vel.data[i].y = Scalar(0.0);
-    //     h_vel.data[i].z = Scalar(0.0);
-    //     }
+    ArrayHandle<unsigned int> h_rtag(m_pdata->getRTags(),
+                                    access_location::host,
+                                    access_mode::read);
+
+    ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
+    memset((void*)h_force.data, 0, sizeof(Scalar4) * m_force.getNumElements());
+
+    ArrayHandle<Scalar3> h_bias_disp(m_bias_disp, access_location::host, access_mode::readwrite);
+
+    for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+        {
+        memset((void*)h_bias_disp.data, 0, sizeof(Scalar3) * m_bias_disp.getNumElements());
+        Scalar square_norm = 0.0;
+        ArrayHandle<Scalar4> h_biases_pos(m_biases_pos[j], access_location::host, access_mode::read);
+
+        // compute the bias displacement
+        for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+            {
+            unsigned int i = h_rtag.data[tag];
+            Scalar4 bias_pos = h_biases_pos.data[tag];
+            Scalar3 dr = make_scalar3(h_pos.data[i].x - bias_pos.x, h_pos.data[i].y - bias_pos.y, h_pos.data[i].z - bias_pos.z);
+            h_bias_disp.data[i].x += dr.x;
+            h_bias_disp.data[i].y += dr.y;
+            h_bias_disp.data[i].z += dr.z;
+            square_norm += dot(dr, dr);
+            }
+
+        // if the norm is greater than sigma, skip this bias
+        if (square_norm >= m_sigma * m_sigma)
+            continue;
+
+        // compute the force and apply it
+        Scalar rinv = fast::rsqrt(square_norm);
+        Scalar term = (1 - square_norm / (m_sigma * m_sigma));
+        Scalar force_divr = m_epsilon * rinv * term * term;
+
+        for (unsigned int i = 0; i < m_pdata->getN(); i++)
+            {
+            h_force.data[i].x += h_bias_disp.data[i].x * force_divr;
+            h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
+            h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
+            }
+        }
     }
 
 namespace detail
@@ -50,7 +272,19 @@ namespace detail
 void export_Mimse(pybind11::module& m)
     {
     pybind11::class_<Mimse, ForceCompute, std::shared_ptr<Mimse>>(m, "Mimse")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>>());
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar>())
+        .def("pushBackBias", &Mimse::pushBackBiasArray)
+        .def("popBackBias", &Mimse::popBackBias)
+        .def("popFrontBias", &Mimse::popFrontBias)
+        .def("clearBiases", &Mimse::clearBiases)
+        .def("getBiases", &Mimse::getBiases)
+        .def("size", &Mimse::size)
+        .def("randomKick", &Mimse::randomKick)
+        .def("pruneBiases", &Mimse::pruneBiases)
+        .def("setSigma", &Mimse::setSigma)
+        .def("setEpsilon", &Mimse::setEpsilon)
+        .def("getSigma", &Mimse::getSigma)
+        .def("getEpsilon", &Mimse::getEpsilon);
     }
 
     } // end namespace detail
@@ -62,16 +296,17 @@ void export_Mimse(pybind11::module& m)
 
 /*! \param sysdef System to zero the velocities of
  */
-MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef)
-    : Mimse(sysdef)
+MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
+    : Mimse(sysdef, sigma, epsilon)
     {
     }
 
 /*! Perform the needed calculations to zero the system's velocity
     \param timestep Current time step of the simulation
 */
-void MimseGPU::forceCompute(uint64_t timestep)
+void MimseGPU::computeForces(uint64_t timestep)
     {
+    Mimse::computeForces(timestep);
     // CURRENTLY, DO NOTHING!
     // Updater::update(timestep);
 
@@ -97,7 +332,7 @@ void export_MimseGPU(pybind11::module& m)
     pybind11::class_<MimseGPU, Mimse, std::shared_ptr<MimseGPU>>(
         m,
         "MimseGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>>());
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar>());
     }
 
     } // end namespace detail
