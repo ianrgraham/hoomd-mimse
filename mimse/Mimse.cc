@@ -152,6 +152,26 @@ void Mimse::randomKick(Scalar delta)
         }
     }
 
+void Mimse::kick(pybind11::array_t<Scalar> &disp)
+    {
+    // assert array shape is N x 3
+    pybind11::buffer_info info = disp.request();
+    assert(info.ndim == 2);
+    assert(info.shape[0] == m_pdata->getN());
+    assert(info.shape[1] == 3);
+
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::readwrite);
+
+    for (unsigned int i = 0; i < m_pdata->getN(); i++)
+        {
+        h_pos.data[i].x += ((Scalar*)info.ptr)[3*i];
+        h_pos.data[i].y += ((Scalar*)info.ptr)[3*i+1];
+        h_pos.data[i].z += ((Scalar*)info.ptr)[3*i+2];
+        }
+    }
+
 void Mimse::pruneBiases(Scalar delta)
     {
     ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
@@ -286,6 +306,7 @@ void export_Mimse(pybind11::module& m)
         .def("getBiases", &Mimse::getBiases)
         .def("size", &Mimse::size)
         .def("randomKick", &Mimse::randomKick)
+        .def("kick", &Mimse::kick)
         .def("pruneBiases", &Mimse::pruneBiases)
         .def("setSigma", &Mimse::setSigma)
         .def("setEpsilon", &Mimse::setEpsilon)

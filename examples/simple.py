@@ -80,7 +80,7 @@ def main():
 
     bias_pos = np.array([[-0.5, 0, 0]])
     mimse_force.push_back(bias_pos)
-    mimse_force.random_kick(0.01)
+    mimse_force.kick(np.array([0.01, 0, 0]))
 
     energies = []
     x_pos = []

@@ -56,6 +56,10 @@ class Mimse(Force):
         """Random kick."""
         self._cpp_obj.randomKick(delta)
 
+    def kick(self, disp):
+        """Kick."""
+        self._cpp_obj.kick(disp)
+
     def prune_biases(self, delta):
         """Prune biases."""
         self._cpp_obj.pruneBiases(delta)

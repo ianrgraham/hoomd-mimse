@@ -31,6 +31,11 @@ namespace hoomd
 // Second, we need to declare the class. One could just as easily use any class in HOOMD as a
 // template here, there are no restrictions on what a template can do
 
+// TODO: include different operating modes, say where we use molecule center of mass instead of individual particles
+// Current impl requires us to drive the method from python
+// We could include a mode where the minimizer object is hooked into the force, and the force controls the restarting of the minimizer and placing of bias
+// We would want this behaviour to be switchable from python
+
 //! A nonsense particle updater written to demonstrate how to write a plugin
 /*! This updater simply sets all of the particle's velocities to 0 when update() is called.
  */
@@ -61,6 +66,8 @@ class Mimse : public ForceCompute
     size_t size();
 
     void randomKick(Scalar delta);
+    
+    void kick(pybind11::array_t<Scalar> &disp);
 
     void pruneBiases(Scalar delta);
 

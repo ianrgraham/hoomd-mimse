@@ -180,7 +180,7 @@ def test_mimse_double_well(simulation_factory, one_particle_snapshot_factory):
 
     bias_pos = np.array([[-0.5, 0, 0]])
     mimse_force.push_back(bias_pos)
-    mimse_force.random_kick(0.01)
+    mimse_force.kick(np.array([0.01, 0, 0]))
 
     fire.reset()
     while not fire.converged:        
@@ -194,4 +194,76 @@ def test_mimse_double_well(simulation_factory, one_particle_snapshot_factory):
                                              decimal=6)
 
 class TiltedSin(hoomd.md.force.Custom):
-    pass
+    # ux = sin(x) - 0.8*x
+    # local minima: -0.643501, 5.63968, 11.9228653072 
+
+    def __init__(self):
+        super().__init__()
+    
+
+    def _potential(self, pos, energy):
+        # quadratic potential in y and z
+        # double well in x, using quartic potential
+        energy += np.sin(pos[:,0]) - 0.8*pos[:,0]
+        energy += pos[:,1]**2
+        energy += pos[:,2]**2
+    
+    def _force(self, pos, force):
+        # force is the derivative of the potential
+        force[:,0] = -np.cos(pos[:,0]) + 0.8
+        force[:,1] = -2*pos[:,1]
+        force[:,2] = -2*pos[:,2]
+
+    def set_forces(self, timestep):
+        state: hoomd.State = self._simulation.state
+        with self.cpu_local_force_arrays as arrays:
+            with state.cpu_local_snapshot as snapshot:
+                pos: hoomd.data.HOOMDArray = snapshot.particles.position
+                self._force(pos._coerce_to_ndarray(), arrays.force._coerce_to_ndarray())
+                self._potential(pos._coerce_to_ndarray(), arrays.potential_energy._coerce_to_ndarray())
+                arrays.virial[:] = np.arange(6)[None, :]
+
+
+def test_mimse_tilted_sin(simulation_factory, one_particle_snapshot_factory):
+
+    snap = one_particle_snapshot_factory()
+
+    if snap.communicator.rank == 0:
+        # minimium of the double well
+        snap.particles.position[0] = [-0.643501, 0, 0]
+        snap.particles.velocity[0] = [0, 0, 0]
+    sim: hoomd.Simulation = simulation_factory(snap)
+
+    # Setup FIRE sim with Mimse force
+    fire = hoomd.md.minimize.FIRE(1e-1, 1e-7, 1.0, 1e-7)
+
+    nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
+    mimse_force = mimse.Mimse(2.0, 2.0)
+    tilted_sin_force = TiltedSin()
+    
+    fire.forces.append(mimse_force)
+    fire.forces.append(tilted_sin_force)
+    fire.methods.append(nve)
+    sim.operations.integrator = fire
+
+    while not fire.converged:        
+        sim.run(10000)
+
+
+    bias_pos = np.array([[-0.643501, 0, 0]])
+    snap = sim.state.get_snapshot()
+    if snap.communicator.rank == 0:
+        np.testing.assert_array_almost_equal(bias_pos, snap.particles.position, decimal=6)
+    mimse_force.push_back(bias_pos)
+    mimse_force.kick(np.array([0.01, 0, 0]))
+
+    fire.reset()
+    while not fire.converged:        
+        sim.run(100000)
+    
+    snap = sim.state.get_snapshot()
+    compare = np.array([5.639684, 0, 0])
+    if snap.communicator.rank == 0:
+        np.testing.assert_array_almost_equal(snap.particles.position[0],
+                                             compare,
+                                             decimal=6)
