@@ -74,7 +74,7 @@ class Mimse : public ForceCompute
 
     private:
     std::deque<GlobalArray<Scalar4>> m_biases_pos;
-    GlobalArray<Scalar3> m_bias_disp;
+    GlobalArray<Scalar4> m_bias_disp;
     Scalar m_sigma;
     Scalar m_epsilon;
 

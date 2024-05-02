@@ -22,7 +22,7 @@ namespace hoomd
 Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
     : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon)
     {
-    GlobalArray<Scalar3> bias_disp(m_pdata->getN(), m_exec_conf);
+    GlobalArray<Scalar4> bias_disp(m_pdata->getN(), m_exec_conf);
     m_bias_disp.swap(bias_disp);
     TAG_ALLOCATION(m_bias_disp);
     }
@@ -227,11 +227,11 @@ void Mimse::computeForces(uint64_t timestep)
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     memset((void*)h_force.data, 0, sizeof(Scalar4) * m_force.getNumElements());
 
-    ArrayHandle<Scalar3> h_bias_disp(m_bias_disp, access_location::host, access_mode::readwrite);
+    ArrayHandle<Scalar4> h_bias_disp(m_bias_disp, access_location::host, access_mode::readwrite);
 
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
-        memset((void*)h_bias_disp.data, 0, sizeof(Scalar3) * m_bias_disp.getNumElements());
+        memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
         Scalar square_norm = 0.0;
         ArrayHandle<Scalar4> h_biases_pos(m_biases_pos[j], access_location::host, access_mode::read);
 
@@ -244,7 +244,9 @@ void Mimse::computeForces(uint64_t timestep)
             h_bias_disp.data[i].x += dr.x;
             h_bias_disp.data[i].y += dr.y;
             h_bias_disp.data[i].z += dr.z;
-            square_norm += dot(dr, dr);
+            Scalar w = dot(dr, dr);
+            h_bias_disp.data[i].w = w;
+            square_norm += w;
             }
 
         // if the norm is greater than sigma, skip this bias
@@ -252,19 +254,19 @@ void Mimse::computeForces(uint64_t timestep)
             continue;
 
         // compute the force and apply it
-        Scalar rinv = slow::rsqrt(square_norm);
+        Scalar r2inv = 1/square_norm;
         Scalar sigma_square = m_sigma * m_sigma;
         Scalar term = (1 - square_norm / (sigma_square));
         Scalar force_divr = 4.0 * m_epsilon * term / sigma_square;
 
-        // Scalar energy_divr = m_epsilon * term * term * rinv;  // TODO: uncomment if we want to compute the energy
+        Scalar energy_div2r = m_epsilon * term * term * r2inv;  // TODO: uncomment if we want to compute the energy
 
         for (unsigned int i = 0; i < m_pdata->getN(); i++)
             {
             h_force.data[i].x += h_bias_disp.data[i].x * force_divr;
             h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
             h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
-            // h_force.data[i].w += energy_divr;  // TODO: this is not quite correct
+            h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: this is not quite correct
             }
         }
     }
