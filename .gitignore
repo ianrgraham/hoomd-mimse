@@ -5,3 +5,7 @@ extern/.build
 .build
 
 *.pyc
+.pytest_cache
+__pycache__
+
+examples/*.png

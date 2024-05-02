@@ -193,5 +193,5 @@ def test_mimse_double_well(simulation_factory, one_particle_snapshot_factory):
                                              compare,
                                              decimal=6)
 
-    
-    
+class TiltedSin(hoomd.md.force.Custom):
+    pass
