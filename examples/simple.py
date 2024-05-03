@@ -50,6 +50,16 @@ class DoubleWell(hoomd.md.force.Custom):
                 self._potential(pos._coerce_to_ndarray(), arrays.potential_energy._coerce_to_ndarray())
                 arrays.virial[:] = np.arange(6)[None, :]
 
+def u_x(x):
+    return x**4 - x**2 - 0.5*x
+
+def mimse_u_x(r, sigma, epsilon):
+    term = (1 - r*r/(sigma*sigma))
+    out = epsilon * term * term
+    out[r > sigma] = 0
+    return out
+
+
 def main():
     snap = gsd.hoomd.Frame()
     snap.particles.N = 1
@@ -77,22 +87,30 @@ def main():
 
     sim.run(0)
 
-
     bias_pos = np.array([[-0.5, 0, 0]])
     mimse_force.push_back(bias_pos)
-    mimse_force.kick(np.array([0.01, 0, 0]))
+    mimse_force.kick(np.array([[0.1, 0, 0]]))
+
+    xs = np.linspace(-1., 1., 100)
+    us = u_x(xs)
+
+    mimse_us = mimse_u_x(xs + 0.5, 1.0, 1.0)
 
     energies = []
     x_pos = []
     fire.reset()
     while not fire.converged:        
         sim.run(10)
-        energies.append(sim.operations.integrator.forces[0].energy)
+        sim.run(0)
+        energies.append(sim.operations.integrator.forces[0].energy + sim.operations.integrator.forces[1].energy)
         x_pos.append(sim.state.get_snapshot().particles.position[0][0])
     print("FIRE minimization converged after {} steps".format(len(energies)*10))
-    plt.plot(x_pos, energies, "o-")
-    plt.xlabel("x position")
-    plt.ylabel("energy")
+    plt.plot(xs, mimse_us + us, label="mimse + well")
+    plt.plot(xs, us, label="double well")
+    plt.plot(x_pos, energies, "o-", label="FIRE")
+    plt.xlabel(r"$x$")
+    plt.ylabel(r"$U(\vec{r})$")
+    plt.legend()
     plt.savefig('double_well.png')
         
 

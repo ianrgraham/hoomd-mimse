@@ -234,6 +234,19 @@ def test_mimse_tilted_sin(simulation_factory, one_particle_snapshot_factory):
         snap.particles.velocity[0] = [0, 0, 0]
     sim: hoomd.Simulation = simulation_factory(snap)
 
+    # # get sorter from sim
+    # print(len(sim.operations.tuners))
+    # for tuner in sim.operations.tuners:
+    #     if isinstance(tuner, hoomd.tune.ParticleSorter):
+    #         sorter: hoomd.tune.ParticleSorter = tuner
+    #         break
+
+    # print(sorter.trigger)
+
+    # # remove sorter
+    # sim.operations.tuners.remove(sorter)
+    # print(len(sim.operations.tuners))
+
     # Setup FIRE sim with Mimse force
     fire = hoomd.md.minimize.FIRE(1e-1, 1e-7, 1.0, 1e-7)
 
