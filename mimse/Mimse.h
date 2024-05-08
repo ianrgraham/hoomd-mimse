@@ -2,10 +2,7 @@
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
 // **********************
-// This is a simple example code written for no function purpose other then to demonstrate the steps
-// needed to write a c++ source code plugin for HOOMD-Blue. This example includes an example Updater
-// class, but it can just as easily be replaced with a ForceCompute, Integrator, or any other C++
-// code at all.
+// Mimse source code. TODO: add a brief description of the Mimse class
 
 // inclusion guard
 #ifndef _MIMSE_H_
@@ -49,8 +46,8 @@ enum class MemoryMode
 // We could include a mode where the minimizer object is hooked into the force, and the force controls the restarting of the minimizer and placing of bias
 // We would want this behaviour to be switchable from python
 
-//! A nonsense particle updater written to demonstrate how to write a plugin
-/*! This updater simply sets all of the particle's velocities to 0 when update() is called.
+//! Computes the forces for the Mimse potential
+/*! 
  */
 class Mimse : public ForceCompute
     {
@@ -118,7 +115,7 @@ class Mimse : public ForceCompute
     Scalar m_sigma;
     Scalar m_epsilon;
     MimseMode m_mode = MimseMode::PARTICLE;
-    // TODO
+    // TODO:
     // HOOMD really should have some way to resort arrays if the ParticleSorter reorders particles
     // Though we can manage by just storing the recent rtag array
     // Algorithm:
@@ -138,15 +135,11 @@ void export_Mimse(pybind11::module& m);
 
     } // end namespace detail
 
-// Third, this class offers a GPU accelerated method in order to demonstrate how to include CUDA
-// code in pluins we need to declare a separate class for that (but only if ENABLE_HIP is set)
-
 #ifdef ENABLE_HIP
 
-//! A GPU accelerated nonsense particle updater written to demonstrate how to write a plugin w/ CUDA
-//! code
-/*! This updater simply sets all of the particle's velocities to 0 (on the GPU) when update() is
- * called.
+//! A GPU accelerated version of Mimse
+//! 
+/*! 
  */
 class MimseGPU : public Mimse
     {

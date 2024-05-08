@@ -17,8 +17,6 @@
 
 namespace hoomd
     {
-/*! \param sysdef System to zero the velocities of
- */
 Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
     : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon)
     {
@@ -231,7 +229,7 @@ Scalar Mimse::getEpsilon()
     return m_epsilon;
     }
 
-/*! Perform the needed calculations to zero the system's velocity
+/*! Apply the bias forces
     \param timestep Current time step of the simulation
 */
 void Mimse::computeForces(uint64_t timestep)
@@ -323,8 +321,6 @@ void export_Mimse(pybind11::module& m)
 
 #ifdef ENABLE_HIP
 
-/*! \param sysdef System to zero the velocities of
- */
 MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
     : Mimse(sysdef, sigma, epsilon)
     {
@@ -339,14 +335,10 @@ MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scala
     m_reduce_sum.swap(reduce_sum);
     }
 
-/*! Perform the needed calculations to zero the system's velocity
+/*! Apply the bias forces
     \param timestep Current time step of the simulation
 */
 void MimseGPU::computeForces(uint64_t timestep)
-    {
-    if (false)
-        Mimse::computeForces(timestep);
-    else
     {
     assert(m_pdata);
 
@@ -384,21 +376,6 @@ void MimseGPU::computeForces(uint64_t timestep)
                                      m_epsilon,
                                      m_pdata->getN());
         }
-    }
-    // CURRENTLY, DO NOTHING!
-    // Updater::update(timestep);
-
-    // // access the particle data arrays for writing on the GPU
-    // ArrayHandle<Scalar4> d_vel(m_pdata->getVelocities(),
-    //                            access_location::device,
-    //                            access_mode::readwrite);
-
-    // // call the kernel defined in Mimse.cu
-    // kernel::gpu_zero_velocities(d_vel.data, m_pdata->getN());
-
-    // // check for error codes from the GPU if error checking is enabled
-    // if (m_exec_conf->isCUDAErrorCheckingEnabled())
-    //     CHECK_CUDA_ERROR();
     }
 
 namespace detail
