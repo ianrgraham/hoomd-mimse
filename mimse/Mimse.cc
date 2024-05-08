@@ -187,7 +187,8 @@ void Mimse::pruneBiases(Scalar delta)
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
         Scalar square_norm = 0.0;
-        ArrayHandle<Scalar4> h_biases_pos(m_biases_pos[j], access_location::host, access_mode::read);
+        const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
+        ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
 
         // compute the bias displacement
         for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
@@ -253,7 +254,8 @@ void Mimse::computeForces(uint64_t timestep)
         {
         memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
         Scalar square_norm = 0.0;
-        ArrayHandle<Scalar4> h_biases_pos(m_biases_pos[j], access_location::host, access_mode::read);
+        const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
+        ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
 
         // compute the bias displacement
         for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
@@ -274,9 +276,9 @@ void Mimse::computeForces(uint64_t timestep)
             continue;
 
         // compute the force and apply it
-        Scalar r2inv = 1/square_norm;
+        Scalar r2inv = 1.0/square_norm;
         Scalar sigma_square = m_sigma * m_sigma;
-        Scalar term = (1 - square_norm / (sigma_square));
+        Scalar term = (1 - square_norm / sigma_square);
         Scalar force_divr = 4.0 * m_epsilon * term / sigma_square;
 
         Scalar energy_div2r = m_epsilon * term * term * r2inv;  // TODO: uncomment if we want to compute the energy
@@ -286,7 +288,7 @@ void Mimse::computeForces(uint64_t timestep)
             h_force.data[i].x += h_bias_disp.data[i].x * force_divr;
             h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
             h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
-            h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: this is not quite correct
+            h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: check that this energy def. is OK
             }
         }
     }
@@ -326,6 +328,15 @@ void export_Mimse(pybind11::module& m)
 MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
     : Mimse(sysdef, sigma, epsilon)
     {
+    // only one GPU is supported
+    if (!m_exec_conf->isCUDAEnabled())
+        {
+        throw std::runtime_error("MimseGPU requires a GPU device.");
+        }
+    int block_size = 256;
+    unsigned int n_blocks = (int)ceil((double)m_pdata->getN() / (double)block_size);
+    GPUArray<Scalar> reduce_sum(n_blocks, m_exec_conf);
+    m_reduce_sum.swap(reduce_sum);
     }
 
 /*! Perform the needed calculations to zero the system's velocity
@@ -333,7 +344,47 @@ MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scala
 */
 void MimseGPU::computeForces(uint64_t timestep)
     {
-    Mimse::computeForces(timestep);
+    if (false)
+        Mimse::computeForces(timestep);
+    else
+    {
+    assert(m_pdata);
+
+    ArrayHandle<Scalar4> d_pos(m_pdata->getPositions(),
+                               access_location::device,
+                               access_mode::read);
+
+    ArrayHandle<unsigned int> d_rtag(m_pdata->getRTags(),
+                                     access_location::device,
+                                     access_mode::read);
+
+    ArrayHandle<Scalar4> d_force(m_force, access_location::device, access_mode::overwrite);
+
+    ArrayHandle<Scalar4> d_bias_disp(m_bias_disp, access_location::device, access_mode::readwrite);
+    ArrayHandle<Scalar> d_reduce_sum(m_reduce_sum, access_location::device, access_mode::readwrite);
+
+    kernel::gpu_zero_forces(d_force.data, m_pdata->getN());
+
+    for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+        {
+        const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
+
+        ArrayHandle<Scalar4> d_biases_pos(bias_pos_j, access_location::device, access_mode::read);
+        
+        kernel::gpu_compute_bias_disp(d_pos.data,
+                                      d_rtag.data,
+                                      d_bias_disp.data,
+                                      d_biases_pos.data,
+                                      m_pdata->getN());
+
+        kernel::gpu_apply_bias_force(d_bias_disp.data,
+                                     d_reduce_sum.data,
+                                     d_force.data,
+                                     m_sigma,
+                                     m_epsilon,
+                                     m_pdata->getN());
+        }
+    }
     // CURRENTLY, DO NOTHING!
     // Updater::update(timestep);
 

@@ -25,6 +25,19 @@
 
 namespace hoomd
     {
+
+enum class MimseMode
+    {
+    PARTICLE,
+    MOLECULE
+    };
+
+enum class MemoryMode
+    {
+    TAG,
+    RTAG
+    };
+
 // (if you really don't want to include the whole hoomd.h, you can include individual files IF AND
 // ONLY IF hoomd_config.h is included first) For example: #include <hoomd/Updater.h>
 
@@ -79,11 +92,42 @@ class Mimse : public ForceCompute
 
     Scalar getEpsilon();
 
-    private:
+    //! Set the mode of operation
+    /*! The mode of operation can be either PARTICLE or MOLECULE
+     */
+    void setMode(MimseMode mode)
+        {
+        m_mode = mode;
+        if (m_mode == MimseMode::MOLECULE)
+            {
+            buildMoleculeList();
+            }
+        }
+
+    protected:
+    //! Build the list of molecules
+    /*! Called at initialization, if bonds are modified, or mode is changed
+     */
+    void buildMoleculeList()
+        {
+        
+        }
+
     std::deque<GlobalArray<Scalar4>> m_biases_pos;
     GlobalArray<Scalar4> m_bias_disp;
     Scalar m_sigma;
     Scalar m_epsilon;
+    MimseMode m_mode = MimseMode::PARTICLE;
+    // TODO
+    // HOOMD really should have some way to resort arrays if the ParticleSorter reorders particles
+    // Though we can manage by just storing the recent rtag array
+    // Algorithm:
+    // new_bias = zeros_like(old_bias)
+    // for idx in range(len(new_tags)):
+    //     tag_i = new_tags[idx]
+    //     jdx = old_rtags[tag_i]
+    //     new_biases[idx] = old_biases[jdx]
+    // old_bias = new_bias
 
     };
 
@@ -112,6 +156,9 @@ class MimseGPU : public Mimse
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);
+
+    protected:
+    GPUArray<Scalar> m_reduce_sum;
     };
 
 namespace detail

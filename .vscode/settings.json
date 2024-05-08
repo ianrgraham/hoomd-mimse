@@ -86,6 +86,7 @@
         "geometry": "cpp",
         "__locale": "cpp",
         "filesystem": "cpp",
-        "locale": "cpp"
+        "locale": "cpp",
+        "shared_mutex": "cpp"
     }
 }

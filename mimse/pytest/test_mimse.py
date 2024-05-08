@@ -14,8 +14,37 @@ import pytest
 import numpy as np
 
 
-# @pytest.mark.parametrize("vel", [[0, 0, 0]])
 def test_mimse(simulation_factory, one_particle_snapshot_factory):
+    """
+    Just a simple check that Mimse can be created and added to a simulation."""
+
+    snap = one_particle_snapshot_factory()
+
+    if snap.communicator.rank == 0:
+        snap.particles.position[0] = [0, 0, 0]
+        snap.particles.velocity[0] = [0, 0, 0]
+    sim: hoomd.Simulation = simulation_factory(snap)
+
+    # Setup FIRE sim with Mimse force
+    dt = 1e-2
+    assert dt <= 1e-2
+    fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
+
+    nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
+    force = mimse.Mimse(1.0, 1.0)
+    
+    fire.forces.append(force)
+    fire.methods.append(nve)
+    sim.operations.integrator = fire
+    sim.run(0)
+
+    # Test that the initial snapshot is correct
+    bias_pos = np.array([[-0.1, 0, 0]])
+    force.push_back(bias_pos)
+    
+
+# @pytest.mark.parametrize("vel", [[0, 0, 0]])
+def test_mimse_push(simulation_factory, one_particle_snapshot_factory):
 
     # `one_particle_snapshot_factory` and `simulation_factory` are pytest
     # fixtures defined in hoomd/conftest.py. These factories automatically
