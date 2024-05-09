@@ -13,6 +13,8 @@ import itertools
 import pytest
 import gsd.hoomd
 import numpy as np
+import os
+import pathlib
 
 class TiltedSinVec(hoomd.md.force.Custom):
     # ux = sin(x) - 0.8*x
@@ -82,13 +84,25 @@ def rot_mat_between_vecs(v1, v2):
 
 def test_mimse_tilted_sin_large_randomized(simulation_factory):
 
+    # get directory of this file
+    this_dir = pathlib.Path(os.path.dirname(os.path.realpath(__file__)))
+
+    data_file = this_dir / "mimse_test_data.npy"
+
     N = 1000
-    # make a random basis for each particle
-    vecs = [create_random_orthonormal_basis_3d() for _ in range(N)]
-    v1, v2, v3 = zip(*vecs)
-    v1 = np.array(v1)
-    v2 = np.array(v2)
-    v3 = np.array(v3)
+    if os.path.exists(data_file):
+        data = np.load(data_file, allow_pickle=True)
+        v1 = data[0]
+        v2 = data[1]
+        v3 = data[2]
+    else:
+        # make a random basis for each particle
+        vecs = [create_random_orthonormal_basis_3d() for _ in range(N)]
+        v1, v2, v3 = zip(*vecs)
+        v1 = np.array(v1)
+        v2 = np.array(v2)
+        v3 = np.array(v3)
+        np.save(data_file, [v1, v2, v3])
 
     snap = gsd.hoomd.Frame()
     snap.particles.N = N
@@ -99,8 +113,18 @@ def test_mimse_tilted_sin_large_randomized(simulation_factory):
 
     sim = simulation_factory(snap)
 
-    if isinstance(sim.device, hoomd.device.GPU):
-        pytest.skip("Test is currently broken on GPU.")
+    # # get sorter from sim
+    # print(len(sim.operations.tuners))
+    # for tuner in sim.operations.tuners:
+    #     if isinstance(tuner, hoomd.tune.ParticleSorter):
+    #         sorter: hoomd.tune.ParticleSorter = tuner
+    #         break
+    
+    # sorter.trigger = hoomd.trigger.Periodic(10)
+    # print(sorter.trigger)
+
+    # if isinstance(sim.device, hoomd.device.GPU):
+    #     pytest.skip("Test is currently broken on GPU.")
 
     # Setup FIRE sim with Mimse force
     dt = 1e-2
@@ -256,8 +280,8 @@ def test_mimse_tilted_sin_large_same_direction(simulation_factory):
 
     sim = simulation_factory(snap)
 
-    if isinstance(sim.device, hoomd.device.GPU):
-        pytest.skip("Test is currently broken on GPU.")
+    # if isinstance(sim.device, hoomd.device.GPU):
+    #     pytest.skip("Test is currently broken on GPU.")
 
     # Setup FIRE sim with Mimse force
     dt = 1e-2
@@ -313,3 +337,62 @@ def test_mimse_tilted_sin_large_same_direction(simulation_factory):
         np.testing.assert_array_almost_equal(snap.particles.position,
                                              compare,
                                              decimal=6)
+        
+def test_mimse_force_tilted_sin_large_same_direction(simulation_factory):
+
+    N = 1000
+    # make a random basis for each particle
+    v1 = [np.array([1, 0, 0]) for _ in range(N)]
+    v2 = [np.array([0, 1, 0]) for _ in range(N)]
+    v3 = [np.array([0, 0, 1]) for _ in range(N)]
+    v1 = np.array(v1)
+    v2 = np.array(v2)
+    v3 = np.array(v3)
+
+    snap = gsd.hoomd.Frame()
+    snap.particles.N = N
+    snap.particles.position = -0.643501 * v1
+    snap.particles.velocity = np.zeros((N, 3))
+    snap.particles.types = ['A']
+    snap.particles.typeid = [0] * N
+
+    sim = simulation_factory(snap)
+
+    # Setup FIRE sim with Mimse force
+    dt = 1e-2
+    assert dt <= 1e-2
+    fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
+
+    nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
+    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N)
+    tilted_sin_force = TiltedSinVec(v1, v2, v3)
+    
+    fire.forces.append(mimse_force)
+    fire.forces.append(tilted_sin_force)
+    fire.methods.append(nve)
+    sim.operations.integrator = fire
+
+    while not fire.converged:
+        sim.run(10000)
+
+    # Test that the initial snapshot is correct
+    bias_pos = -0.643501 * v1
+    snap = sim.state.get_snapshot()
+    if snap.communicator.rank == 0:
+        np.testing.assert_array_almost_equal(bias_pos, snap.particles.position, decimal=6)
+    mimse_force.push_back(bias_pos)
+    mimse_force.kick(0.1 * v1)
+    
+    fire.reset()
+
+    # sim.run(0)
+    
+    forces = mimse_force.forces
+    energies = mimse_force.energies
+    energy = mimse_force.energy
+
+    if snap.communicator.rank == 0:
+        np.testing.assert_array_almost_equal(forces[:2], np.array([[0.19950003, 0.,         0.        ],
+ [0.19950003, 0.,         0.        ]]), decimal=6)
+        np.testing.assert_array_almost_equal(energies[:2], np.array([1.9900125, 1.9900125]), decimal=6)
+        np.testing.assert_array_almost_equal(energy, np.array([1990.0124968]), decimal=6)

@@ -87,6 +87,7 @@
         "__locale": "cpp",
         "filesystem": "cpp",
         "locale": "cpp",
-        "shared_mutex": "cpp"
+        "shared_mutex": "cpp",
+        "__availability": "cpp"
     }
 }

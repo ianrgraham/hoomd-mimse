@@ -287,6 +287,10 @@ void Mimse::computeForces(uint64_t timestep)
             h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
             h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
             h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: check that this energy def. is OK
+            // h_force.data[i].x += r2inv;
+            // h_force.data[i].y += term;
+            // h_force.data[i].z += square_norm;
+            // h_force.data[i].w += force_divr;
             }
         }
     }
@@ -372,8 +376,8 @@ void MimseGPU::computeForces(uint64_t timestep)
         kernel::gpu_apply_bias_force(d_bias_disp.data,
                                      d_reduce_sum.data,
                                      d_force.data,
-                                     m_sigma,
                                      m_epsilon,
+                                     m_sigma,
                                      m_pdata->getN());
         }
     }

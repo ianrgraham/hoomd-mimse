@@ -6,6 +6,9 @@
 // This file is part of the HOOMD-blue project, released under the BSD 3-Clause License.
 
 #include "Mimse.cuh"
+#include <iostream>
+#include <thrust/device_ptr.h>
+#include <thrust/host_vector.h>
 
 /*! \file Mimse.cu
     \brief CUDA kernels for Mimse
@@ -91,7 +94,7 @@ __global__ void gpu_reduce_bias_disp_w_kernel(const Scalar4* d_disp,
     // write out the result
     if (threadIdx.x == 0)
         {
-        d_sum[threadIdx.x] = sdata[0];
+        d_sum[blockIdx.x] = sdata[0];
         }
     }
 
@@ -137,7 +140,7 @@ __global__ void gpu_apply_bias_force_kernel(const Scalar4* d_bias_disp,
                                             const Scalar sigma,
                                             const unsigned int N)
     {
-    if (square_norm[0] > sigma * sigma)
+    if (square_norm[0] >= sigma * sigma)
         {
         return;
         }
@@ -153,7 +156,7 @@ __global__ void gpu_apply_bias_force_kernel(const Scalar4* d_bias_disp,
         Scalar r2inv = 1.0/square_norm[0];
         Scalar sigma_square = sigma * sigma;
         Scalar term = (1 - square_norm[0] / sigma_square);
-        Scalar force_divr = 4.0 * epsilon * r2inv * term * term;
+        Scalar force_divr = 4.0 * epsilon * term / sigma_square;
 
         Scalar energy_div2r = epsilon * term * term * r2inv;
 
@@ -162,6 +165,10 @@ __global__ void gpu_apply_bias_force_kernel(const Scalar4* d_bias_disp,
         d_force[idx].y += bias_disp.y * force_divr;
         d_force[idx].z += bias_disp.z * force_divr;
         d_force[idx].w += bias_disp.w * energy_div2r;
+        // d_force[idx].x += r2inv;
+        // d_force[idx].y += term;
+        // d_force[idx].z += square_norm[0];
+        // d_force[idx].w += force_divr;
         }
     }
 
@@ -206,17 +213,16 @@ hipError_t gpu_apply_bias_force(const Scalar4* d_bias_disp,
     // just use a block size of 256
     int block_size = 256;
     dim3 grid((int)ceil((double)N / (double)block_size), 1, 1);
-
     dim3 threads(block_size, 1, 1);
+    unsigned int M = grid.x;
 
     // apply reduction
     int memsize = block_size * sizeof(Scalar);
     hipLaunchKernelGGL(gpu_reduce_bias_disp_w_kernel, dim3(grid), dim3(threads), memsize, 0, d_bias_disp, d_reduce_sum, N);
     // apply further reductions until we have a single value
-    unsigned int M = grid.x;
     while (M > 1)
         {
-        grid.x = (int)ceil((double)N / (double)block_size);
+        grid.x = (int)ceil((double)M / (double)block_size);
         hipLaunchKernelGGL(gpu_reduce_kernel, dim3(grid), dim3(threads), memsize, 0, d_reduce_sum, M);
         M = grid.x;
         }

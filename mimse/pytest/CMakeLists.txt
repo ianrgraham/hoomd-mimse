@@ -1,6 +1,7 @@
 # List all files that include tests
 set(files __init__.py
           test_mimse.py
+          test_mimse_longer.py
     )
 
 # Copy tests to the install directory
