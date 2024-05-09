@@ -13,6 +13,9 @@ mimse_force = mimse.Mimse(1.0, 1.0)
 fire.forces.append(mimse_force)
 # create and append any additional forces 
 
+fire.methods.append(nve)
+sim.operations.integrator = fire
+
 # run fire until converged
 while not fire.converged:
     sim.run(1000)
