@@ -99,7 +99,7 @@ def main():
     energies = []
     x_pos = []
     fire.reset()
-    while not fire.converged:        
+    while not fire.converged:
         sim.run(10)
         sim.run(0)
         energies.append(sim.operations.integrator.forces[0].energy + sim.operations.integrator.forces[1].energy)

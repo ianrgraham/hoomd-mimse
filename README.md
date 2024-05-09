@@ -2,7 +2,35 @@
 
 ## Usage
 
-**TODO**
+``` python
+# setup simulation
+
+# Setup FIRE sim with Mimse force
+fire = hoomd.md.minimize.FIRE(1e-2, 1e-7, 1.0, 1e-7)
+
+nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
+mimse_force = mimse.Mimse(1.0, 1.0)
+fire.forces.append(mimse_force)
+# create and append any additional forces 
+
+# run fire until converged
+while not fire.converged:
+    sim.run(1000)
+
+# then perform MIMSE protocol for some number of iterations
+n_iter = 10
+
+for _ in range(n_iter):
+    # place new bias and kick the system in some direction
+    bias_pos = sim.state.get_snapshot().particles.position
+    mimse_force.push_back(bias_pos)
+    mimse_force.random_kick(0.1)
+
+    # now converge to minima
+    fire.reset()
+    while not fire.converged:
+        sim.run(1000)
+```
 
 ## Development
 
