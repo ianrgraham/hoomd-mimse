@@ -66,3 +66,9 @@ With any recent changes built and installed to the development environment, you 
 ``` bash
 pytest mimse
 ```
+
+### Benchmarking
+
+``` bash
+python3 -m benchmarks.mimse_lj --device GPU
+```

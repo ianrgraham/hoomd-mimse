@@ -9,3 +9,5 @@ extern/.build
 __pycache__
 
 examples/*.png
+
+*.gsd

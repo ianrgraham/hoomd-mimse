@@ -1,4 +1,5 @@
 {
+    "python.defaultInterpreterPath": "~/micromamba/envs/dev-hoomd-mimse/bin/python",
     "files.associations": {
         "functional": "cpp",
         "target": "cpp",
