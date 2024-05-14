@@ -6,8 +6,6 @@
 #include "Mimse.cuh"
 #endif
 
-#include <algorithm>
-
 /*! \file Mimse.cc
     \brief Definition of Mimse
 */
@@ -20,6 +18,8 @@ namespace hoomd
 Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
     : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon)
     {
+    m_rng = std::default_random_engine(); // default seed=1
+    m_normal = std::normal_distribution<Scalar>(0.0, 1.0);
     GlobalArray<Scalar4> bias_disp(m_pdata->getN(), m_exec_conf);
     m_bias_disp.swap(bias_disp);
     TAG_ALLOCATION(m_bias_disp);
@@ -142,11 +142,33 @@ void Mimse::randomKick(Scalar delta)
                                access_location::host,
                                access_mode::readwrite);
 
+    // make a random kick, need to improve
+    std::vector<Scalar> kick;
+    Scalar norm2 = 0.0;
+    // get dimensions
+    const unsigned int dim = m_sysdef->getNDimensions();
+    for (unsigned int i = 0; i < m_pdata->getN() * dim; i++)
+        {
+        Scalar num = m_normal(m_rng);
+        kick.push_back(num);
+        norm2 += num * num;
+        }
+
+    // normalize and rescale
+    Scalar norm = sqrt(norm2);
+    for (unsigned int i = 0; i < m_pdata->getN() * dim; i++)
+        {
+        kick[i] = delta * kick[i] / norm;
+        }
+    
+
     for (unsigned int i = 0; i < m_pdata->getN(); i++)
         {
-        h_pos.data[i].x += delta * (Scalar(rand()) / Scalar(RAND_MAX) - Scalar(0.5));
-        h_pos.data[i].y += delta * (Scalar(rand()) / Scalar(RAND_MAX) - Scalar(0.5));
-        h_pos.data[i].z += delta * (Scalar(rand()) / Scalar(RAND_MAX) - Scalar(0.5));
+        unsigned int idx = i * dim;
+        h_pos.data[i].x += kick[idx];
+        h_pos.data[i].y += kick[idx+1];
+        if (dim == 3)
+            h_pos.data[i].z += kick[idx+2];
         }
     }
 

@@ -20,6 +20,10 @@
 #include <pybind11/pybind11.h>
 #endif
 
+// TODO: replace random number generator with parallel RNG
+// #include "RandomNumbers.h"
+#include <random>  // NOTE: we'll use the std::rand for now
+
 namespace hoomd
     {
 
@@ -125,6 +129,10 @@ class Mimse : public ForceCompute
     //     jdx = old_rtags[tag_i]
     //     new_biases[idx] = old_biases[jdx]
     // old_bias = new_bias
+
+    std::default_random_engine m_rng;
+    std::normal_distribution<Scalar> m_normal;
+
 
     };
 
