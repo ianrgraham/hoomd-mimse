@@ -65,6 +65,8 @@ class Mimse : public ForceCompute
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);
 
+    void pushBackCurrentPos();
+
     void pushBackBias(const GlobalArray<Scalar4> &bias_pos);
 
     void pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos);

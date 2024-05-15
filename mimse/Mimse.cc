@@ -31,6 +31,24 @@ Mimse::~Mimse()
     
     }
 
+void Mimse::pushBackCurrentPos()
+    {
+    GlobalArray<Scalar4> current_pos(m_pdata->getN(), m_exec_conf);
+
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::read);
+
+    ArrayHandle<Scalar4> h_current_pos(current_pos, access_location::host, access_mode::overwrite);
+
+    for (unsigned int i = 0; i < m_pdata->getN(); i++)
+        {
+        h_current_pos.data[i] = h_pos.data[i];
+        }
+
+    m_biases_pos.push_back(current_pos);
+    }
+
 void Mimse::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
     {
     unsigned int N = m_pdata->getN();
@@ -325,6 +343,7 @@ void export_Mimse(pybind11::module& m)
     {
     pybind11::class_<Mimse, ForceCompute, std::shared_ptr<Mimse>>(m, "Mimse")
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar>())
+        .def("pushBackCurrentPos", &Mimse::pushBackCurrentPos)
         .def("pushBackBias", &Mimse::pushBackBiasArray)
         .def("popBackBias", &Mimse::popBackBias)
         .def("popFrontBias", &Mimse::popFrontBias)

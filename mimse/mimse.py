@@ -28,6 +28,10 @@ class Mimse(Force):
                 self._simulation.state._cpp_sys_def,
                 self._sigma, self._epsilon)
             
+    def push_back_current_pos(self):
+        """Push back current positions."""
+        self._cpp_obj.pushBackCurrentPos()
+            
     def push_back(self, bias):
         """Push back a bias, index is in the global order."""
         self._cpp_obj.pushBackBias(bias)
