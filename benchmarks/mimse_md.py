@@ -9,6 +9,8 @@ from hoomd.mimse import mimse
 from . import common
 from .config import make_initial_configuration
 
+import numpy as np
+
 DEFAULT_BUFFER = 0.4
 DEFAULT_REBUILD_CHECK_DELAY = 1
 DEFAULT_TAIL_CORRECTION = False
@@ -104,7 +106,7 @@ class MDPair(common.Benchmark):
         integrator = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
         nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-        mimse_force = mimse.Mimse(10, 10)
+        mimse_force = mimse.Mimse(np.sqrt(self.N), self.N)
         
         integrator.forces.append(mimse_force)
         integrator.methods.append(nve)
@@ -130,5 +132,84 @@ class MDPair(common.Benchmark):
         sim.run(0)
         bias_pos = sim.state.get_snapshot().particles.position
         mimse_force.push_back(bias_pos)
+        random_kick = np.random.normal(0, 1.0, (self.N, 3))
+        if self.dimensions == 2:
+            random_kick[:, 2] = 0
+        random_kick /= np.linalg.norm(random_kick)
+        mimse_force.kick(random_kick)
+
+        # remove_drift = hoomd.update.RemoveDrift(bias_pos)
+        # sim.operations.updaters.append(remove_drift)
 
         return sim
+    
+    def execute(self):
+        print_verbose_messages = self.verbose and self.device.communicator.rank == 0
+
+        # Ensure that all ops are attached (needed for is_tuning_complete).
+        self.run(0)
+
+        if print_verbose_messages:
+            print(f'Running {type(self).__name__} benchmark')
+
+        if print_verbose_messages:
+            print(f'.. warming up for {self.warmup_steps} steps')
+        self.run(self.warmup_steps)
+
+        if isinstance(self.device, hoomd.device.GPU) and hasattr(
+            self.sim.operations, 'is_tuning_complete'
+        ):
+            while not self.sim.operations.is_tuning_complete:
+                if print_verbose_messages:
+                    print(
+                        '.. autotuning GPU kernel parameters for '
+                        f'{self.warmup_steps} steps'
+                    )
+                self.run(self.warmup_steps)
+
+        if print_verbose_messages:
+            print(
+                f'.. running for {self.benchmark_steps} steps ' f'{self.repeat} time(s)'
+            )
+
+        # benchmark
+        performance = []
+
+        fire = self.sim.operations.integrator
+        print(fire.converged)
+
+        while not fire.converged:
+            self.run(1000)
+
+        sim = self.sim
+        mimse_force = sim.operations.integrator.forces[0]
+
+        sim.run(0)
+        bias_pos = sim.state.get_snapshot().particles.position
+        mimse_force.push_back(bias_pos)
+        random_kick = np.random.normal(0, 1.0, (self.N, 3))
+        if self.dimensions == 2:
+            random_kick[:, 2] = 0
+        random_kick /= np.linalg.norm(random_kick)
+        mimse_force.kick(random_kick)
+
+        fire.reset()
+        
+
+        if isinstance(self.device, hoomd.device.GPU):
+            with self.device.enable_profiling():
+                for _i in range(self.repeat):
+                    self.run(self.benchmark_steps)
+                    performance.append(self.get_performance())
+                    if print_verbose_messages:
+                        print(f'.. {performance[-1]} {self.units}')
+        else:
+            for _i in range(self.repeat):
+                self.run(self.benchmark_steps)
+                performance.append(self.get_performance())
+                if print_verbose_messages:
+                    print(f'.. {performance[-1]} {self.units}')
+
+        print(fire.converged)
+
+        return performance

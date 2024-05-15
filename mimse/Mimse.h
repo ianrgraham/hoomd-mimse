@@ -121,6 +121,7 @@ class Mimse : public ForceCompute
     Scalar m_sigma;
     Scalar m_epsilon;
     MimseMode m_mode = MimseMode::PARTICLE;
+    MemoryMode m_memory_mode = MemoryMode::TAG;
     // TODO:
     // HOOMD really should have some way to resort arrays if the ParticleSorter reorders particles
     // Though we can manage by just storing the recent rtag array
