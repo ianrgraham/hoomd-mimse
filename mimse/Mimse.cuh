@@ -22,6 +22,9 @@ hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
                                  const unsigned int* d_rtag,
                                  Scalar4* d_disp,
                                  const Scalar4* d_biases_pos,
+                                 const BoxDim& box,
+                                 const bool substract_mean,
+                                 Scalar3* d_reduce_mean,
                                  const unsigned int N);
 
 hipError_t gpu_apply_bias_force(const Scalar4* d_bias_disp,

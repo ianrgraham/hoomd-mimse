@@ -132,7 +132,7 @@ def test_mimse_tilted_sin_large_randomized(simulation_factory):
     fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N)
+    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N, subtract_mean=False)
     tilted_sin_force = TiltedSinVec(v1, v2, v3)
     
     fire.forces.append(mimse_force)
@@ -211,7 +211,7 @@ def test_mimse_tilted_sin_smallish(simulation_factory):
     fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N)
+    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N, subtract_mean=False)
     tilted_sin_force = TiltedSinVec(v1, v2, v3)
     
     fire.forces.append(mimse_force)
@@ -289,7 +289,7 @@ def test_mimse_tilted_sin_large_same_direction(simulation_factory):
     fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N)
+    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N, subtract_mean=False)
     tilted_sin_force = TiltedSinVec(v1, v2, v3)
     
     fire.forces.append(mimse_force)
@@ -364,7 +364,7 @@ def test_mimse_force_tilted_sin_large_same_direction(simulation_factory):
     fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N)
+    mimse_force = mimse.Mimse(2.0*np.sqrt(N), 2*N, subtract_mean=False)
     tilted_sin_force = TiltedSinVec(v1, v2, v3)
     
     fire.forces.append(mimse_force)

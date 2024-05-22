@@ -58,7 +58,7 @@ class Mimse : public ForceCompute
 
     public:
     //! Constructor
-    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon);
+    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean);
 
     ~Mimse();
 
@@ -135,6 +135,7 @@ class Mimse : public ForceCompute
 
     std::default_random_engine m_rng;
     std::normal_distribution<Scalar> m_normal;
+    bool m_subtract_mean;
 
 
     };
@@ -156,13 +157,14 @@ class MimseGPU : public Mimse
     {
     public:
     //! Constructor
-    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon);
+    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean);
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);
 
     protected:
     GPUArray<Scalar> m_reduce_sum;
+    GPUArray<Scalar3> m_reduce_mean;
     };
 
 namespace detail

@@ -15,8 +15,8 @@
 
 namespace hoomd
     {
-Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
-    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon)
+Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean)
+    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean)
     {
     m_rng = std::default_random_engine(); // default seed=1
     m_normal = std::normal_distribution<Scalar>(0.0, 1.0);
@@ -222,6 +222,8 @@ void Mimse::pruneBiases(Scalar delta)
 
     std::vector<unsigned int> to_remove;
 
+    const BoxDim& box = m_pdata->getGlobalBox();
+
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
         Scalar square_norm = 0.0;
@@ -233,7 +235,9 @@ void Mimse::pruneBiases(Scalar delta)
             {
             unsigned int i = h_rtag.data[tag];
             Scalar4 bias_pos = h_biases_pos.data[tag];
+            // TODO: need to use box to wrap the displacement vector
             Scalar3 dr = make_scalar3(bias_pos.x - h_pos.data[i].x, bias_pos.y - h_pos.data[i].y, bias_pos.z - h_pos.data[i].z);
+            dr = box.minImage(dr);
             square_norm += dot(dr, dr);
             
             }
@@ -288,6 +292,8 @@ void Mimse::computeForces(uint64_t timestep)
 
     ArrayHandle<Scalar4> h_bias_disp(m_bias_disp, access_location::host, access_mode::readwrite);
 
+    BoxDim box = m_pdata->getGlobalBox();
+
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
         memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
@@ -295,18 +301,46 @@ void Mimse::computeForces(uint64_t timestep)
         const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
         ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
 
+        Scalar3 mean_disp = make_scalar3(0.0, 0.0, 0.0);
+
         // compute the bias displacement
         for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
             {
             unsigned int i = h_rtag.data[tag];
             Scalar4 bias_pos = h_biases_pos.data[tag];
             Scalar3 dr = make_scalar3(h_pos.data[i].x - bias_pos.x, h_pos.data[i].y - bias_pos.y, h_pos.data[i].z - bias_pos.z);
+            // use box to wrap
+            dr = box.minImage(dr);
             h_bias_disp.data[i].x += dr.x;
             h_bias_disp.data[i].y += dr.y;
             h_bias_disp.data[i].z += dr.z;
-            Scalar w = dot(dr, dr);
-            h_bias_disp.data[i].w = w;
-            square_norm += w;
+            if (m_subtract_mean)
+                {
+                mean_disp += dr;
+                }
+            else  // if we don't subtract the mean, we can immediately compute the square norm
+                {
+                Scalar w = dot(dr, dr);
+                h_bias_disp.data[i].w = w;
+                square_norm += w;
+                }
+            }
+
+        // subtract the mean displacement if flag is set
+        if (m_subtract_mean)
+            {
+            mean_disp /= m_pdata->getN();
+            for (unsigned int i = 0; i < m_pdata->getN(); i++)
+                {
+                h_bias_disp.data[i].x -= mean_disp.x;
+                h_bias_disp.data[i].y -= mean_disp.y;
+                h_bias_disp.data[i].z -= mean_disp.z;
+                // with the mean subtracted, we can now compute the square norm
+                Scalar3 dr = make_scalar3(h_bias_disp.data[i].x, h_bias_disp.data[i].y, h_bias_disp.data[i].z);
+                Scalar w = dot(dr, dr);
+                h_bias_disp.data[i].w = w;
+                square_norm += w;
+                }
             }
 
         // if the norm is greater than sigma, skip this bias
@@ -327,10 +361,6 @@ void Mimse::computeForces(uint64_t timestep)
             h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
             h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
             h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: check that this energy def. is OK
-            // h_force.data[i].x += r2inv;
-            // h_force.data[i].y += term;
-            // h_force.data[i].z += square_norm;
-            // h_force.data[i].w += force_divr;
             }
         }
     }
@@ -342,7 +372,7 @@ namespace detail
 void export_Mimse(pybind11::module& m)
     {
     pybind11::class_<Mimse, ForceCompute, std::shared_ptr<Mimse>>(m, "Mimse")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar>())
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, bool>())
         .def("pushBackCurrentPos", &Mimse::pushBackCurrentPos)
         .def("pushBackBias", &Mimse::pushBackBiasArray)
         .def("popBackBias", &Mimse::popBackBias)
@@ -366,8 +396,8 @@ void export_Mimse(pybind11::module& m)
 
 #ifdef ENABLE_HIP
 
-MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon)
-    : Mimse(sysdef, sigma, epsilon)
+MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean)
+    : Mimse(sysdef, sigma, epsilon, subtract_mean)
     {
     // only one GPU is supported
     if (!m_exec_conf->isCUDAEnabled())
@@ -377,7 +407,9 @@ MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scala
     int block_size = 256;
     unsigned int n_blocks = (int)ceil((double)m_pdata->getN() / (double)block_size);
     GPUArray<Scalar> reduce_sum(n_blocks, m_exec_conf);
+    GPUArray<Scalar3> reduce_mean(n_blocks, m_exec_conf);
     m_reduce_sum.swap(reduce_sum);
+    m_reduce_mean.swap(reduce_mean);
     }
 
 /*! Apply the bias forces
@@ -399,8 +431,11 @@ void MimseGPU::computeForces(uint64_t timestep)
 
     ArrayHandle<Scalar4> d_bias_disp(m_bias_disp, access_location::device, access_mode::readwrite);
     ArrayHandle<Scalar> d_reduce_sum(m_reduce_sum, access_location::device, access_mode::readwrite);
+    ArrayHandle<Scalar3> d_reduce_mean(m_reduce_mean, access_location::device, access_mode::readwrite);
 
     kernel::gpu_zero_forces(d_force.data, m_pdata->getN());
+
+    BoxDim box = m_pdata->getGlobalBox();
 
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
@@ -412,6 +447,9 @@ void MimseGPU::computeForces(uint64_t timestep)
                                       d_rtag.data,
                                       d_bias_disp.data,
                                       d_biases_pos.data,
+                                      box,
+                                      m_subtract_mean,
+                                      d_reduce_mean.data,
                                       m_pdata->getN());
 
         kernel::gpu_apply_bias_force(d_bias_disp.data,
@@ -432,7 +470,7 @@ void export_MimseGPU(pybind11::module& m)
     pybind11::class_<MimseGPU, Mimse, std::shared_ptr<MimseGPU>>(
         m,
         "MimseGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar>());
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, bool>());
     }
 
     } // end namespace detail

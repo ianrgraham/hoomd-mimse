@@ -1,1 +1,1 @@
-# TODO
+# TODO: add tests for periodic boundary conditions too

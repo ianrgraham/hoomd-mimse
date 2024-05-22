@@ -11,22 +11,27 @@ from hoomd.md.force import Force
 class Mimse(Force):
     """Mimse."""
 
-    def __init__(self, sigma, epsilon):
+    def __init__(self, sigma, epsilon, subtract_mean=True):
+        assert subtract_mean in (True, False)
+        assert sigma > 0
+        assert epsilon > 0
+
         # initialize base class
         super().__init__()
         self._sigma = sigma
         self._epsilon = epsilon
+        self._subtract_mean = subtract_mean
 
     def _attach_hook(self):
         # initialize the reflected c++ class
         if isinstance(self._simulation.device, hoomd.device.CPU):
             self._cpp_obj = _mimse.Mimse(
                 self._simulation.state._cpp_sys_def,
-                self._sigma, self._epsilon)
+                self._sigma, self._epsilon, self._subtract_mean)
         else:
             self._cpp_obj = _mimse.MimseGPU(
                 self._simulation.state._cpp_sys_def,
-                self._sigma, self._epsilon)
+                self._sigma, self._epsilon, self._subtract_mean)
             
     def push_back_current_pos(self):
         """Push back current positions."""

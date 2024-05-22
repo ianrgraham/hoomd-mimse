@@ -31,7 +31,7 @@ def test_mimse(simulation_factory, one_particle_snapshot_factory):
     fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    force = mimse.Mimse(1.0, 1.0)
+    force = mimse.Mimse(1.0, 1.0, subtract_mean=False)
     
     fire.forces.append(force)
     fire.methods.append(nve)
@@ -62,7 +62,7 @@ def test_mimse_push(simulation_factory, one_particle_snapshot_factory):
     fire = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    force = mimse.Mimse(1.0, 1.0)
+    force = mimse.Mimse(1.0, 1.0, subtract_mean=False)
     
     fire.forces.append(force)
     fire.methods.append(nve)
@@ -107,7 +107,7 @@ def test_mimse_push_and_prune(simulation_factory, one_particle_snapshot_factory)
     fire = hoomd.md.minimize.FIRE(1e-1, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    force = mimse.Mimse(1.0, 1.0)
+    force = mimse.Mimse(1.0, 1.0, subtract_mean=False)
     
     fire.forces.append(force)
     fire.methods.append(nve)
@@ -195,7 +195,7 @@ def test_mimse_double_well(simulation_factory, one_particle_snapshot_factory):
     fire = hoomd.md.minimize.FIRE(1e-1, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    mimse_force = mimse.Mimse(1.0, 1.0)
+    mimse_force = mimse.Mimse(1.0, 1.0, subtract_mean=False)
     double_well_force = DoubleWell(x1=-0.5)
     
     fire.forces.append(mimse_force)
@@ -280,7 +280,7 @@ def test_mimse_tilted_sin(simulation_factory, one_particle_snapshot_factory):
     fire = hoomd.md.minimize.FIRE(1e-1, 1e-7, 1.0, 1e-7)
 
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    mimse_force = mimse.Mimse(2.0, 2.0)
+    mimse_force = mimse.Mimse(2.0, 2.0, subtract_mean=False)
     tilted_sin_force = TiltedSin()
     
     fire.forces.append(mimse_force)
