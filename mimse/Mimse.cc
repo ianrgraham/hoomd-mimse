@@ -441,7 +441,7 @@ void MimseGPU::computeForces(uint64_t timestep)
                                access_location::device,
                                access_mode::read);
 
-    ArrayHandle<unsigned int> d_rtag(m_pdata->getRTags(),
+    ArrayHandle<unsigned int> d_tag(m_pdata->getTags(),
                                      access_location::device,
                                      access_mode::read);
 
@@ -462,7 +462,7 @@ void MimseGPU::computeForces(uint64_t timestep)
         ArrayHandle<Scalar4> d_biases_pos(bias_pos_j, access_location::device, access_mode::read);
         
         kernel::gpu_compute_bias_disp(d_pos.data,
-                                      d_rtag.data,
+                                      d_tag.data,
                                       d_bias_disp.data,
                                       d_biases_pos.data,
                                       box,

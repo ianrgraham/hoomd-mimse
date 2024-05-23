@@ -64,8 +64,9 @@ def main():
     snap.configuration.box = [L, L, Lz, 0, 0, 0]
     snap.configuration.dimensions = DIM
 
-    sim: hoomd.Simulation = hoomd.Simulation(device=hoomd.device.CPU())
+    sim: hoomd.Simulation = hoomd.Simulation(device=hoomd.device.GPU())
     sim.create_state_from_snapshot(snap)
+    # sim.operations.tuners.clear()
 
     fire = hoomd.md.Integrator(dt=0.005)
     disp_capped = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All(), thermostat=hoomd.md.methods.thermostats.MTTK(1.0, 0.1))
@@ -155,9 +156,10 @@ def main():
     add_ka_lj_to_integrator(fire)
     
     sim.operations.integrator = fire
+    # sim.run(0)
 
     energies = []
-    n_iter = 1000
+    n_iter = 100
 
     freud_box = freud.box.Box.from_box(sim.state.box)
 
@@ -169,16 +171,18 @@ def main():
             print("")  # to get the progress bar to update without clearning the previous line. remove eventually
             bias_pos = sim.state.get_snapshot().particles.position  # TODO: substitute with on-device copy method
             mimse_force.push_back(bias_pos)
-            mimse_force.random_kick(1e-5)
+            mimse_force.random_kick(0.01)
             
             post_kick_pos = sim.state.get_snapshot().particles.position
             fire.reset()
-            sim.run(0)
+            sim.run(1)
             pre_mimse_energy = sim.operations.integrator.forces[0].energy
             pre_mimse_force = sim.operations.integrator.forces[0].forces
             while not fire.converged:
                 sim.run(1000)
             energies.append(sim.operations.integrator.energy)
+
+            # break
 
             # get biases
             biases = mimse_force.get_biases()

@@ -19,7 +19,7 @@ namespace kernel
 hipError_t gpu_zero_forces(Scalar4* d_force, unsigned int N);
 
 hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
-                                 const unsigned int* d_rtag,
+                                 const unsigned int* d_tag,
                                  Scalar4* d_disp,
                                  const Scalar4* d_biases_pos,
                                  const BoxDim& box,

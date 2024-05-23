@@ -33,7 +33,7 @@ __global__ void gpu_zero_forces_kernel(Scalar4* d_force, unsigned int N)
     }
 
 __global__ void gpu_compute_bias_disp_kernel(const Scalar4* d_pos,
-                                             const unsigned int* d_rtag,
+                                             const unsigned int* d_tag,
                                              Scalar4* d_disp,
                                              const Scalar4* d_biases_pos,
                                              const BoxDim box,
@@ -45,7 +45,7 @@ __global__ void gpu_compute_bias_disp_kernel(const Scalar4* d_pos,
         {
         // get the current position
         Scalar4 pos = d_pos[idx];
-        unsigned int tag = d_rtag[idx];
+        unsigned int tag = d_tag[idx];
 
         // get the bias position
         Scalar4 bias_pos = d_biases_pos[tag];
@@ -68,7 +68,7 @@ __global__ void gpu_compute_bias_disp_kernel(const Scalar4* d_pos,
     }
 
 __global__ void gpu_compute_bias_disp_prior_mean_subtraction_kernel(const Scalar4* d_pos,
-                                                                    const unsigned int* d_rtag,
+                                                                    const unsigned int* d_tag,
                                                                     Scalar4* d_disp,
                                                                     const Scalar4* d_biases_pos,
                                                                     const BoxDim box,
@@ -80,7 +80,7 @@ __global__ void gpu_compute_bias_disp_prior_mean_subtraction_kernel(const Scalar
         {
         // get the current position
         Scalar4 pos = d_pos[idx];
-        unsigned int tag = d_rtag[idx];
+        unsigned int tag = d_tag[idx];
 
         // get the bias position
         Scalar4 bias_pos = d_biases_pos[tag];
@@ -325,7 +325,7 @@ hipError_t gpu_zero_forces(Scalar4* d_force, unsigned int N)
     }
 
 hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
-                                 const unsigned int* d_rtag,
+                                 const unsigned int* d_tag,
                                  Scalar4* d_disp,
                                  const Scalar4* d_biases_pos,
                                  const BoxDim& box,
@@ -343,7 +343,7 @@ hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
     if (subtract_mean)
         {
         // compute the displacement
-        hipLaunchKernelGGL(gpu_compute_bias_disp_prior_mean_subtraction_kernel, dim3(grid), dim3(threads), 0, 0, d_pos, d_rtag, d_disp, d_biases_pos, box, N);
+        hipLaunchKernelGGL(gpu_compute_bias_disp_prior_mean_subtraction_kernel, dim3(grid), dim3(threads), 0, 0, d_pos, d_tag, d_disp, d_biases_pos, box, N);
 
         unsigned int M = grid.x;
 
@@ -363,7 +363,15 @@ hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
         hipLaunchKernelGGL(gpu_subtract_mean_kernel, dim3(grid), dim3(threads), 0, 0, d_disp, d_reduce_mean, N);
         }
     else
-        hipLaunchKernelGGL(gpu_compute_bias_disp_kernel, dim3(grid), dim3(threads), 0, 0, d_pos, d_rtag, d_disp, d_biases_pos, box, N);
+        hipLaunchKernelGGL(gpu_compute_bias_disp_kernel, dim3(grid), dim3(threads), 0, 0, d_pos, d_tag, d_disp, d_biases_pos, box, N);
+
+    // print out displacement
+    // thrust::device_ptr<Scalar4> dev_ptr(d_disp);
+    // thrust::host_vector<Scalar4> host_vec(dev_ptr, dev_ptr + N);
+    // for (unsigned int i = 0; i < N; i++)
+    //     {
+    //     std::cout << "disp[" << i << "]: " << host_vec[i].x << " " << host_vec[i].y << " " << host_vec[i].z << " " << host_vec[i].w << std::endl;
+    //     }
 
     return hipSuccess;
     }
