@@ -160,6 +160,8 @@ void Mimse::randomKick(Scalar delta)
                                access_location::host,
                                access_mode::readwrite);
 
+    const BoxDim& box = m_pdata->getGlobalBox();
+
     // make a random kick, need to improve
     std::vector<Scalar> kick;
     Scalar norm2 = 0.0;
@@ -187,6 +189,13 @@ void Mimse::randomKick(Scalar delta)
         h_pos.data[i].y += kick[idx+1];
         if (dim == 3)
             h_pos.data[i].z += kick[idx+2];
+
+        // wrap the position
+        Scalar3 pos = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
+        pos = box.minImage(pos);
+        h_pos.data[i].x = pos.x;
+        h_pos.data[i].y = pos.y;
+        h_pos.data[i].z = pos.z;
         }
     }
 
@@ -202,11 +211,20 @@ void Mimse::kick(pybind11::array_t<Scalar> &disp)
                                access_location::host,
                                access_mode::readwrite);
 
+    const BoxDim& box = m_pdata->getGlobalBox();
+
     for (unsigned int i = 0; i < m_pdata->getN(); i++)
         {
         h_pos.data[i].x += ((Scalar*)info.ptr)[3*i];
         h_pos.data[i].y += ((Scalar*)info.ptr)[3*i+1];
-        h_pos.data[i].z += ((Scalar*)info.ptr)[3*i+2];
+        h_pos.data[i].z += ((Scalar*)info.ptr)[3*i+2];  // allow kicks in 3D, even if sim is 2D
+
+        // wrap the position
+        Scalar3 pos = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
+        pos = box.minImage(pos);
+        h_pos.data[i].x = pos.x;
+        h_pos.data[i].y = pos.y;
+        h_pos.data[i].z = pos.z;
         }
     }
 
