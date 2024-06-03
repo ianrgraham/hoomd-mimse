@@ -35,8 +35,8 @@ enum class MimseMode
 
 enum class MemoryMode
     {
-    TAG,
-    RTAG
+    TAG,  // Store the biases by particle tag
+    RTAG  // Store particle by reverse tag (same as pdata arrays due to ParticleSorter behaviour) (UNIMPLEMENTED)
     };
 
 // (if you really don't want to include the whole hoomd.h, you can include individual files IF AND
@@ -161,6 +161,10 @@ class MimseGPU : public Mimse
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);
+
+    void pushBackBias(const GlobalArray<Scalar4> &bias_pos);
+
+    void pushBackCurrentPos();
 
     protected:
     GPUArray<Scalar> m_reduce_sum;

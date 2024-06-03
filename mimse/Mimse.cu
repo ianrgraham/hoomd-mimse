@@ -20,6 +20,21 @@ namespace hoomd
 namespace kernel
     {
 
+__global__ void gpu_copy_by_rtag_kernel(Scalar4* d_dest,
+                                const Scalar4* d_src,
+                                const unsigned int* d_rtag,
+                                const unsigned int N)
+    {
+    unsigned tag  = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tag >= N)
+        return;
+
+    unsigned int idx = d_rtag[tag];
+
+    d_dest[tag] = d_src[idx];
+    }
+
 __global__ void gpu_zero_forces_kernel(Scalar4* d_force, unsigned int N)
     {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -405,6 +420,35 @@ hipError_t gpu_apply_bias_force(const Scalar4* d_bias_disp,
 
     // apply force
     hipLaunchKernelGGL(gpu_apply_bias_force_kernel, dim3(grid2), dim3(threads), 0, 0, d_bias_disp, d_reduce_sum, d_force, epsilon, sigma, N);
+
+    return hipSuccess;
+    }
+
+__global__ void gpu_copy_by_rtag_scalar4_kernel(Scalar4* d_dest,
+                                const Scalar4* d_src,
+                                const unsigned int* d_rtag,
+                                const unsigned int N)
+    {
+    unsigned tag  = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tag >= N)
+        return;
+
+    unsigned int idx = d_rtag[tag];
+
+    d_dest[tag] = d_src[idx];
+    }
+
+hipError_t gpu_copy_by_rtag_scalar4(Scalar4* d_dest,
+                           const Scalar4* d_src,
+                           const unsigned int* d_rtag,
+                           const unsigned int N)
+    {
+    int block_size = 256;
+    dim3 grid((int)ceil((double)N / (double)block_size), 1, 1);
+    dim3 threads(block_size, 1, 1);
+
+    hipLaunchKernelGGL(gpu_copy_by_rtag_scalar4_kernel, dim3(grid), dim3(threads), 0, 0, d_dest, d_src, d_rtag, N);
 
     return hipSuccess;
     }

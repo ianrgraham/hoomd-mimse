@@ -33,20 +33,9 @@ Mimse::~Mimse()
 
 void Mimse::pushBackCurrentPos()
     {
-    GlobalArray<Scalar4> current_pos(m_pdata->getN(), m_exec_conf);
+    const GlobalArray<Scalar4> &current_pos = m_pdata->getPositions();
 
-    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
-                               access_location::host,
-                               access_mode::read);
-
-    ArrayHandle<Scalar4> h_current_pos(current_pos, access_location::host, access_mode::overwrite);
-
-    for (unsigned int i = 0; i < m_pdata->getN(); i++)
-        {
-        h_current_pos.data[i] = h_pos.data[i];
-        }
-
-    m_biases_pos.push_back(current_pos);
+    pushBackBias(current_pos);
     }
 
 void Mimse::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
@@ -479,6 +468,38 @@ void MimseGPU::computeForces(uint64_t timestep)
         }
     }
 
+void MimseGPU::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
+    {
+    unsigned int N = m_pdata->getN();
+    assert(bias_pos.getNumElements() == N);
+    // make a copy
+    GlobalArray<Scalar4> copy(N, m_exec_conf);
+    ArrayHandle<Scalar4> d_copy(copy, access_location::device, access_mode::overwrite);
+    ArrayHandle<Scalar4> d_biases_pos(bias_pos, access_location::device, access_mode::read);
+
+    // Assumes the bias_pos array has the same tags as the particle data
+    ArrayHandle<unsigned int> d_rtag(m_pdata->getRTags(),
+                                    access_location::host,
+                                    access_mode::read);
+    // for (unsigned int tag = 0; tag < N; tag++)
+    //     {
+    //     unsigned int i = h_rtag.data[tag];
+    //     h_copy.data[tag] = h_biases_pos.data[i];
+    //     }
+
+    kernel::gpu_copy_by_rtag_scalar4(d_copy.data, d_biases_pos.data, d_rtag.data, N);
+
+    m_biases_pos.push_back(copy);
+    }
+
+void MimseGPU::pushBackCurrentPos()
+    {
+
+    const GlobalArray<Scalar4> &current_pos = m_pdata->getPositions();
+
+    pushBackBias(current_pos);
+    }
+
 namespace detail
     {
 /* Export the GPU updater to be visible in the python module
@@ -488,7 +509,8 @@ void export_MimseGPU(pybind11::module& m)
     pybind11::class_<MimseGPU, Mimse, std::shared_ptr<MimseGPU>>(
         m,
         "MimseGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, bool>());
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, bool>())
+        .def("pushBackCurrentPos", &MimseGPU::pushBackCurrentPos);
     }
 
     } // end namespace detail
