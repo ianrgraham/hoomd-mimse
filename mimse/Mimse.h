@@ -113,8 +113,9 @@ class Mimse : public ForceCompute
      */
     void buildMoleculeList()
         {
-        
         }
+
+    void computeActiveBiases();
 
     std::deque<GlobalArray<Scalar4>> m_biases_pos;
     GlobalArray<Scalar4> m_bias_disp;
@@ -137,6 +138,9 @@ class Mimse : public ForceCompute
     std::normal_distribution<Scalar> m_normal;
     bool m_subtract_mean;
 
+    GlobalArray<Scalar4> m_last_buffer_pos;
+    std::vector<unsigned int> m_active_biases;
+    Scalar m_bias_buffer;
 
     };
 

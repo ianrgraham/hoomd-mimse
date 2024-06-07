@@ -18,6 +18,7 @@ namespace hoomd
 Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean)
     : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean)
     {
+    m_bias_buffer = 2.0 * m_sigma;
     m_rng = std::default_random_engine(); // default seed=1
     m_normal = std::normal_distribution<Scalar>(0.0, 1.0);
     GlobalArray<Scalar4> bias_disp(m_pdata->getN(), m_exec_conf);
@@ -294,6 +295,8 @@ void Mimse::computeForces(uint64_t timestep)
                                     access_location::host,
                                     access_mode::read);
 
+    
+
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     memset((void*)h_force.data, 0, sizeof(Scalar4) * m_force.getNumElements());
 
@@ -301,7 +304,10 @@ void Mimse::computeForces(uint64_t timestep)
 
     BoxDim box = m_pdata->getGlobalBox();
 
+    // computeActiveBiases();
+
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+    // for (auto j : m_active_biases)  // this is not ready for prime time
         {
         memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
         Scalar square_norm = 0.0;
@@ -368,6 +374,43 @@ void Mimse::computeForces(uint64_t timestep)
             h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
             h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
             h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: check that this energy def. is OK
+            }
+        }
+    }
+
+void Mimse::computeActiveBiases()
+    {
+    // get pos handle on host
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::read);
+
+    // get bias pos buffer handle on host
+    ArrayHandle<Scalar4> h_last_buffer_pos(m_last_buffer_pos, access_location::host, access_mode::readwrite);
+
+    // get rtag handle on host
+    ArrayHandle<unsigned int> h_rtag(m_pdata->getRTags(),
+                                    access_location::host,
+                                    access_mode::read);
+
+    // compute displacement from last buffer
+    Scalar square_norm = 0.0;
+
+    for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+        {
+        unsigned int i = h_rtag.data[tag];
+        Scalar4 last_pos = h_last_buffer_pos.data[tag];
+        Scalar3 dr = make_scalar3(h_pos.data[i].x - last_pos.x, h_pos.data[i].y - last_pos.y, h_pos.data[i].z - last_pos.z);
+        square_norm += dot(dr, dr);
+        }
+
+    // if the norm is greater than the buffer, update the active bias list
+    if (square_norm >= m_bias_buffer * m_bias_buffer)
+        {
+        m_active_biases.clear();
+        for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+            {
+            m_active_biases.push_back(j);
             }
         }
     }
@@ -444,7 +487,10 @@ void MimseGPU::computeForces(uint64_t timestep)
 
     BoxDim box = m_pdata->getGlobalBox();
 
+    // computeActiveBiases();
+
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+    // for (auto j : m_active_biases)  // this is not ready for prime time
         {
         const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
 
@@ -481,11 +527,6 @@ void MimseGPU::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
     ArrayHandle<unsigned int> d_rtag(m_pdata->getRTags(),
                                     access_location::host,
                                     access_mode::read);
-    // for (unsigned int tag = 0; tag < N; tag++)
-    //     {
-    //     unsigned int i = h_rtag.data[tag];
-    //     h_copy.data[tag] = h_biases_pos.data[i];
-    //     }
 
     kernel::gpu_copy_by_rtag_scalar4(d_copy.data, d_biases_pos.data, d_rtag.data, N);
 

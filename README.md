@@ -37,6 +37,11 @@ for _ in range(n_iter):
 
 ## Development
 
+### Dependencies
+
+* HOOMD-blue >= 4.6.0
+* CUDA >= 12.0 (sorry, no HIP at the moment due to use of CUDA graphs)
+
 ### Setup
 
 First, setup a python environment with conda (or some alternative, I like micromamba). Follow the instructions in `extern/README.md` to create a python environment with the correct dependencies and install hoomd. You may need to install `ninja` using your package manager, or through some python environment (system or dev environment). We use `ninja` since it allows for easy incremental builds.
@@ -72,3 +77,7 @@ pytest mimse
 ``` bash
 python3 -m benchmarks.mimse_lj --device GPU
 ```
+
+## Caveats 🚧👷
+
+At the moment, this project absolutely does not work with MPI, and **WILL GIVE WRONG RESULTS!**
