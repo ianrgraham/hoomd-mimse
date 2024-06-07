@@ -125,9 +125,9 @@ __global__ void gpu_subtract_mean_kernel(Scalar4* d_disp,
 
     if (idx < N)
         {
-        d_disp[idx].x -= d_reduce_mean[0].x / N;
-        d_disp[idx].y -= d_reduce_mean[0].y / N;
-        d_disp[idx].z -= d_reduce_mean[0].z / N;
+        d_disp[idx].x -= (d_reduce_mean[0].x / Scalar(N));
+        d_disp[idx].y -= (d_reduce_mean[0].y / Scalar(N));
+        d_disp[idx].z -= (d_reduce_mean[0].z / Scalar(N));
         Scalar3 dr = make_scalar3(d_disp[idx].x, d_disp[idx].y, d_disp[idx].z);
         d_disp[idx].w = dot(dr, dr);
         }
@@ -373,9 +373,11 @@ hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
             hipLaunchKernelGGL(gpu_reduce_scalar3_kernel, dim3(grid), dim3(threads), memsize, 0, d_reduce_mean, M);
             M = grid.x;
             }
+
+        dim3 grid2((int)ceil((double)N / (double)block_size), 1, 1);
         
         // subtract the mean displacement
-        hipLaunchKernelGGL(gpu_subtract_mean_kernel, dim3(grid), dim3(threads), 0, 0, d_disp, d_reduce_mean, N);
+        hipLaunchKernelGGL(gpu_subtract_mean_kernel, dim3(grid2), dim3(threads), 0, 0, d_disp, d_reduce_mean, N);
         }
     else
         hipLaunchKernelGGL(gpu_compute_bias_disp_kernel, dim3(grid), dim3(threads), 0, 0, d_pos, d_tag, d_disp, d_biases_pos, box, N);

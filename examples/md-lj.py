@@ -31,7 +31,7 @@ def main():
 
     # Setup random simulation
     snap = gsd.hoomd.Frame()
-    N = 256
+    N = 1024
     DIM = 3
     rho = 1.2
     ratio = 0.8
@@ -78,7 +78,7 @@ def main():
     sim.run(10_000)
 
     # Safely quench the system
-    fire = hoomd.md.minimize.FIRE(1e-3, 1e-10, 1.0, 1e-10)
+    fire = hoomd.md.minimize.FIRE(1e-2, 1e-5, 1.0, 1e-5)
     # disp_capped = hoomd.md.methods.DisplacementCapped(hoomd.filter.All(), 0.1)
     disp_capped = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
     fire.methods.append(disp_capped)
@@ -143,14 +143,14 @@ def main():
     del fire
 
     # Setup FIRE sim with Mimse and LJ forces
-    fire = hoomd.md.minimize.FIRE(1e-2, 1e-10, 1.0, 1e-10)
+    fire = hoomd.md.minimize.FIRE(1e-2, 1e-5, 1.0, 1e-5)
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
     # nve = hoomd.md.methods.DisplacementCapped(hoomd.filter.All(), 0.1)
     fire.methods.append(nve)
     
     # mimse
     # mimse_force = mimse.Mimse(1.5*np.sqrt(N), 20.0*N)
-    mimse_force = mimse.Mimse(1.5, 20.0)
+    mimse_force = mimse.Mimse(1.5, 20.0, subtract_mean=True)
     fire.forces.append(mimse_force)
 
     add_ka_lj_to_integrator(fire)
@@ -179,7 +179,7 @@ def main():
             pre_mimse_energy = sim.operations.integrator.forces[0].energy
             pre_mimse_force = sim.operations.integrator.forces[0].forces
             while not fire.converged:
-                sim.run(1000)
+                sim.run(10_000)
             energies.append(sim.operations.integrator.energy)
 
             # break
@@ -208,7 +208,7 @@ def main():
                     "mimse_energy": mimse_energy,
                     "lj_energy": lj_energy,
                 })
-            mimse_force.prune_biases(3.0)
+            # mimse_force.prune_biases(3.0)
 
     plt.plot(energies)
     plt.ylabel("Energy")
