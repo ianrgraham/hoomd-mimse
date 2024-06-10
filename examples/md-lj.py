@@ -31,7 +31,7 @@ def main():
 
     # Setup random simulation
     snap = gsd.hoomd.Frame()
-    N = 1024
+    N = 32_000
     DIM = 3
     rho = 1.2
     ratio = 0.8
@@ -159,7 +159,7 @@ def main():
     # sim.run(0)
 
     energies = []
-    n_iter = 100
+    n_iter = 10
 
     freud_box = freud.box.Box.from_box(sim.state.box)
 

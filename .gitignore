@@ -12,3 +12,5 @@ examples/*.png
 
 *.gsd
 benchmarks/output/*
+
+*.nsys-rep
