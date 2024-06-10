@@ -7,6 +7,7 @@ import argparse
 
 import hoomd
 import numpy
+import pathlib
 
 DEFAULT_WARMUP_STEPS = 1000
 DEFAULT_BENCHMARK_STEPS = 1000
@@ -214,12 +215,17 @@ class Benchmark:
         """Implement the command line entrypoint for benchmarks."""
         parser = cls.make_argument_parser()
         args = parser.parse_args()
+        dev = args.device
         args.device = make_hoomd_device(args)
         benchmark = cls(**vars(args))
         performance = benchmark.execute()
 
         if args.device.communicator.rank == 0:
-            print(f'{numpy.mean(performance)}')
+            print(f'{performance}')
+
+            # write out the performance data
+            file = pathlib.Path(__file__).parent / 'output' / f'perf_{dev}_N-{benchmark.N}_dim-{benchmark.dimensions}.txt'
+            numpy.savetxt(file, performance)
 
 
 class ComparativeBenchmark(Benchmark):

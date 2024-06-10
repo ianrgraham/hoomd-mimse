@@ -92,3 +92,7 @@ class Mimse(Force):
     def epsilon(self, epsilon):
         self._cpp_obj.setEpsilon(epsilon)
         self._epsilon = epsilon
+
+    def _n_compute_steps(self):
+        """Number of compute steps."""
+        return self._cpp_obj.getComputes()

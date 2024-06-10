@@ -376,6 +376,8 @@ void Mimse::computeForces(uint64_t timestep)
             h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: check that this energy def. is OK
             }
         }
+    
+    m_computes++;
     }
 
 void Mimse::computeActiveBiases()
@@ -436,7 +438,8 @@ void export_Mimse(pybind11::module& m)
         .def("setSigma", &Mimse::setSigma)
         .def("setEpsilon", &Mimse::setEpsilon)
         .def("getSigma", &Mimse::getSigma)
-        .def("getEpsilon", &Mimse::getEpsilon);
+        .def("getEpsilon", &Mimse::getEpsilon)
+        .def("getComputes", &Mimse::getComputes);
     }
 
     } // end namespace detail
@@ -512,6 +515,8 @@ void MimseGPU::computeForces(uint64_t timestep)
                                      m_sigma,
                                      m_pdata->getN());
         }
+
+    m_computes++;
     }
 
 void MimseGPU::pushBackBias(const GlobalArray<Scalar4> &bias_pos)

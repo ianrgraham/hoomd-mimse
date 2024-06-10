@@ -5,12 +5,16 @@
 
 import hoomd
 from hoomd.mimse import mimse
+import hoomd.simulation
 
 from . import common
 from .config import make_initial_configuration
 
 import numpy as np
+import tqdm
+import time
 
+DEFAULT_BIASES = 200
 DEFAULT_BUFFER = 0.4
 DEFAULT_REBUILD_CHECK_DELAY = 1
 DEFAULT_TAIL_CORRECTION = False
@@ -38,6 +42,7 @@ class MDPair(common.Benchmark):
 
     def __init__(
         self,
+        n_biases=DEFAULT_BIASES,
         buffer=DEFAULT_BUFFER,
         rebuild_check_delay=DEFAULT_REBUILD_CHECK_DELAY,
         tail_correction=DEFAULT_TAIL_CORRECTION,
@@ -46,6 +51,7 @@ class MDPair(common.Benchmark):
         mode=DEFAULT_MODE,
         **kwargs,
     ):
+        self.n_biases = n_biases
         self.buffer = buffer
         self.rebuild_check_delay = rebuild_check_delay
         self.tail_correction = tail_correction
@@ -103,7 +109,7 @@ class MDPair(common.Benchmark):
 
         dt = 1e-2
         assert dt <= 1e-2
-        integrator = hoomd.md.minimize.FIRE(dt, 1e-7, 1.0, 1e-7)
+        integrator = hoomd.md.minimize.FIRE(dt, 1e-3, 1.0, 1e-5)
 
         nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
         mimse_force = mimse.Mimse(np.sqrt(self.N), self.N)
@@ -132,11 +138,11 @@ class MDPair(common.Benchmark):
         sim.run(0)
         bias_pos = sim.state.get_snapshot().particles.position
         mimse_force.push_back(bias_pos)
-        random_kick = np.random.normal(0, 1.0, (self.N, 3))
-        if self.dimensions == 2:
-            random_kick[:, 2] = 0
-        random_kick /= np.linalg.norm(random_kick)
-        mimse_force.kick(random_kick)
+        # random_kick = np.random.normal(0, 1.0, (self.N, 3))
+        # if self.dimensions == 2:
+        #     random_kick[:, 2] = 0
+        # random_kick /= np.linalg.norm(random_kick)
+        # mimse_force.kick(random_kick)
 
         # remove_drift = hoomd.update.RemoveDrift(bias_pos)
         # sim.operations.updaters.append(remove_drift)
@@ -154,18 +160,18 @@ class MDPair(common.Benchmark):
 
         if print_verbose_messages:
             print(f'.. warming up for {self.warmup_steps} steps')
-        self.run(self.warmup_steps)
+        # self.run(self.warmup_steps)
 
-        if isinstance(self.device, hoomd.device.GPU) and hasattr(
-            self.sim.operations, 'is_tuning_complete'
-        ):
-            while not self.sim.operations.is_tuning_complete:
-                if print_verbose_messages:
-                    print(
-                        '.. autotuning GPU kernel parameters for '
-                        f'{self.warmup_steps} steps'
-                    )
-                self.run(self.warmup_steps)
+        # if isinstance(self.device, hoomd.device.GPU) and hasattr(
+        #     self.sim.operations, 'is_tuning_complete'
+        # ):
+        #     while not self.sim.operations.is_tuning_complete:
+        #         if print_verbose_messages:
+        #             print(
+        #                 '.. autotuning GPU kernel parameters for '
+        #                 f'{self.warmup_steps} steps'
+        #             )
+        #         self.run(self.warmup_steps)
 
         if print_verbose_messages:
             print(
@@ -176,40 +182,62 @@ class MDPair(common.Benchmark):
         performance = []
 
         fire = self.sim.operations.integrator
-        print(fire.converged)
+        # print(fire.converged)
 
-        while not fire.converged:
-            self.run(1000)
-
-        sim = self.sim
-        mimse_force = sim.operations.integrator.forces[0]
+        sim: hoomd.simulation.Simulation = self.sim
+        mimse_force: mimse.Mimse = sim.operations.integrator.forces[0]
 
         sim.run(0)
-        bias_pos = sim.state.get_snapshot().particles.position
-        mimse_force.push_back(bias_pos)
-        random_kick = np.random.normal(0, 1.0, (self.N, 3))
-        if self.dimensions == 2:
-            random_kick[:, 2] = 0
-        random_kick /= np.linalg.norm(random_kick)
-        mimse_force.kick(random_kick)
+        np.random.seed(0)
+        def random_kick(mimse_force):
+            random_kick = np.random.normal(0, 1.0, (self.N, 3))
+            if self.dimensions == 2:
+                random_kick[:, 2] = 0
+            random_kick /= np.linalg.norm(random_kick)
+            random_kick *= 1e-3
+            mimse_force.kick(random_kick)
+
+        computes_steps = mimse_force._n_compute_steps()
 
         fire.reset()
-        
+        start = time.time()
+        with tqdm.tqdm() as pbar:
+            inner = 0
+            while not fire.converged:
+                self.run(1_000)
+                energy = fire.energy
+                force = sim.operations.integrator.forces[0].forces + sim.operations.integrator.forces[1].forces
+                # print(force)
+                max_force = np.mean(np.linalg.norm(force, axis=1))
+                inner += 1
+                pbar.set_postfix(energy=energy, max_force=max_force, inner=inner)
+        t = time.time() - start
+        new_computes_steps = mimse_force._n_compute_steps()
+        steps = new_computes_steps - computes_steps
+        computes_steps = new_computes_steps
+        performance.append(steps/t/self.N)
 
-        if isinstance(self.device, hoomd.device.GPU):
-            with self.device.enable_profiling():
-                for _i in range(self.repeat):
-                    self.run(self.benchmark_steps)
-                    performance.append(self.get_performance())
-                    if print_verbose_messages:
-                        print(f'.. {performance[-1]} {self.units}')
-        else:
-            for _i in range(self.repeat):
-                self.run(self.benchmark_steps)
-                performance.append(self.get_performance())
-                if print_verbose_messages:
-                    print(f'.. {performance[-1]} {self.units}')
-
-        print(fire.converged)
+        with tqdm.tqdm() as pbar:
+            for i in range(self.n_biases):
+                bias_pos = sim.state.get_snapshot().particles.position
+                mimse_force.push_back(bias_pos)
+                random_kick(mimse_force)
+                fire.reset()
+                start = time.time()
+                inner = 0
+                while not fire.converged:
+                    self.run(1_000)
+                    energy = fire.energy
+                    force = sim.operations.integrator.forces[0].forces + sim.operations.integrator.forces[1].forces
+                    # print(force)
+                    max_force = np.mean(np.linalg.norm(force, axis=1))
+                    inner += 1
+                    pbar.set_postfix(energy=energy, max_force=max_force, inner=inner)
+                t = time.time() - start
+                new_computes_steps = mimse_force._n_compute_steps()
+                steps = new_computes_steps - computes_steps
+                computes_steps = new_computes_steps
+                performance.append(steps/t/self.N)
+                pbar.update(1)
 
         return performance

@@ -107,6 +107,11 @@ class Mimse : public ForceCompute
             }
         }
 
+    unsigned int getComputes()
+        {
+        return m_computes;
+        }
+
     protected:
     //! Build the list of molecules
     /*! Called at initialization, if bonds are modified, or mode is changed
@@ -141,6 +146,9 @@ class Mimse : public ForceCompute
     GlobalArray<Scalar4> m_last_buffer_pos;
     std::vector<unsigned int> m_active_biases;
     Scalar m_bias_buffer;
+
+    // track times the forceCompute method is called to help benchmark
+    unsigned int m_computes = 0;
 
     };
 
