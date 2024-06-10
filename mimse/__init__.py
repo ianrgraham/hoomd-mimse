@@ -4,3 +4,6 @@
 """Example python module."""
 
 from hoomd.mimse import mimse
+
+
+__version__ = 'v0.1.0'

@@ -65,6 +65,9 @@ class MDPair(common.Benchmark):
         """Make an ArgumentParser instance for benchmark options."""
         parser = common.Benchmark.make_argument_parser()
         parser.add_argument(
+            '--n_biases', type=int, default=DEFAULT_BIASES, help='Number of biases.'
+        )
+        parser.add_argument(
             '--buffer', type=float, default=DEFAULT_BUFFER, help='Neighbor list buffer.'
         )
         parser.add_argument(
