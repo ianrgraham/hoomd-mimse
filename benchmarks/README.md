@@ -20,4 +20,4 @@ Using an Intel 12700 and RTX 3060Ti, we find a moderate speedup once we surpass 
 
 ### Titan V
 
-![Example Image](./perf-titanV.png)
+![Example Image](./perf-2155-TITANV.png)
