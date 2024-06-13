@@ -15,10 +15,9 @@
 
 namespace hoomd
     {
-Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean)
-    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean)
+Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean)
+    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean), m_bias_buffer(bias_buffer)
     {
-    m_bias_buffer = 2.0 * m_sigma;
     m_rng = std::default_random_engine(); // default seed=1
     m_normal = std::normal_distribution<Scalar>(0.0, 1.0);
     GlobalArray<Scalar4> bias_disp(m_pdata->getN(), m_exec_conf);
@@ -58,6 +57,22 @@ void Mimse::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
         h_copy.data[tag] = h_biases_pos.data[i];
         }
     m_biases_pos.push_back(copy);
+
+    if (m_last_buffer_pos.isNull())
+        {
+        GlobalArray<Scalar4> last_buffer_pos(N, m_exec_conf);
+        m_last_buffer_pos.swap(last_buffer_pos);
+        TAG_ALLOCATION(m_last_buffer_pos);
+
+        ArrayHandle<Scalar4> h_last_buffer_pos(m_last_buffer_pos, access_location::host, access_mode::overwrite);
+        for (unsigned int tag = 0; tag < N; tag++)
+            {
+            unsigned int i = h_rtag.data[tag];
+            h_copy.data[tag] = h_biases_pos.data[i];
+            }
+        }
+    size_t n_buffers = m_biases_pos.size();
+    m_active_biases.push_back(static_cast<unsigned int>(n_buffers) - 1);
     }
 
 void Mimse::pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos)
@@ -77,21 +92,62 @@ void Mimse::pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos)
         h_copy.data[i] = make_scalar4(((Scalar*)info.ptr)[3*i], ((Scalar*)info.ptr)[3*i+1], ((Scalar*)info.ptr)[3*i+2], 1.0);
         }
     m_biases_pos.push_back(copy);
+
+    if (m_last_buffer_pos.isNull())
+        {
+        GlobalArray<Scalar4> last_buffer_pos(N, m_exec_conf);
+        m_last_buffer_pos.swap(last_buffer_pos);
+        TAG_ALLOCATION(m_last_buffer_pos);
+
+        ArrayHandle<Scalar4> h_last_buffer_pos(m_last_buffer_pos, access_location::host, access_mode::overwrite);
+
+        for (unsigned int i = 0; i < N; i++)
+            {
+            h_last_buffer_pos.data[i] = make_scalar4(((Scalar*)info.ptr)[3*i], ((Scalar*)info.ptr)[3*i+1], ((Scalar*)info.ptr)[3*i+2], 1.0);
+            }
+        }
+    
+    size_t n_buffers = m_biases_pos.size();
+    m_active_biases.push_back(static_cast<unsigned int>(n_buffers) - 1);
     }
 
 void Mimse::popBackBias()
     {
     m_biases_pos.pop_back();
+
+    // remove from active biases
+    unsigned int idx = static_cast<unsigned int>(m_biases_pos.size());
+    // find the index in the active biases
+    for (unsigned int i = 0; i < m_active_biases.size(); i++)
+        {
+        if (m_active_biases[i] == idx)
+            {
+            m_active_biases.erase(m_active_biases.begin() + i);
+            break;
+            }
+        }
     }
 
 void Mimse::popFrontBias()
     {
     m_biases_pos.pop_front();
+
+    unsigned int idx = 0;
+    // find the index in the active biases
+    for (unsigned int i = 0; i < m_active_biases.size(); i++)
+        {
+        if (m_active_biases[i] == idx)
+            {
+            m_active_biases.erase(m_active_biases.begin() + i);
+            break;
+            }
+        }
     }
 
 void Mimse::clearBiases()
     {
     m_biases_pos.clear();
+    m_active_biases.clear();
     }
 
 // TODO: this is definitely wrong under MPI
@@ -259,6 +315,20 @@ void Mimse::pruneBiases(Scalar delta)
         {
         m_biases_pos.erase(m_biases_pos.begin() + to_remove[i-1]);
         }
+
+    // convert to_remove to a set and find indices
+
+    // std::set<unsigned int> to_remove_set(to_remove.begin(), to_remove.end());
+
+    // std::vector<unsigned int> to_remove_active;
+
+    // for (unsigned int i = 0; i < m_active_biases.size(); i++)
+    //     {
+    //     if (to_remove_set.find(m_active_biases[i]) != to_remove_set.end())
+    //         {
+    //         m_active_biases.erase(m_active_biases.begin() + i);
+    //         }
+    //     }
     }
 
 void Mimse::setSigma(Scalar sigma)
@@ -304,10 +374,10 @@ void Mimse::computeForces(uint64_t timestep)
 
     BoxDim box = m_pdata->getGlobalBox();
 
-    // computeActiveBiases();
+    computeActiveBiases();
 
-    for (unsigned int j = 0; j < m_biases_pos.size(); j++)
-    // for (auto j : m_active_biases)  // this is not ready for prime time
+    // for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+    for (auto j : m_active_biases)  // this is not ready for prime time
         {
         memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
         Scalar square_norm = 0.0;
@@ -382,6 +452,9 @@ void Mimse::computeForces(uint64_t timestep)
 
 void Mimse::computeActiveBiases()
     {
+    if (m_last_buffer_pos.isNull())
+        return;
+    
     // get pos handle on host
     ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
                                access_location::host,
@@ -398,22 +471,87 @@ void Mimse::computeActiveBiases()
     // compute displacement from last buffer
     Scalar square_norm = 0.0;
 
+    BoxDim box = m_pdata->getGlobalBox();
+
     for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
         {
         unsigned int i = h_rtag.data[tag];
         Scalar4 last_pos = h_last_buffer_pos.data[tag];
         Scalar3 dr = make_scalar3(h_pos.data[i].x - last_pos.x, h_pos.data[i].y - last_pos.y, h_pos.data[i].z - last_pos.z);
+        // use box to wrap
+        dr = box.minImage(dr);
         square_norm += dot(dr, dr);
         }
 
     // if the norm is greater than the buffer, update the active bias list
-    if (square_norm >= m_bias_buffer * m_bias_buffer)
+    if (square_norm >= (m_bias_buffer) * (m_bias_buffer))
         {
         m_active_biases.clear();
+
+        ArrayHandle<Scalar4> h_bias_disp(m_bias_disp, access_location::host, access_mode::readwrite);
+
         for (unsigned int j = 0; j < m_biases_pos.size(); j++)
             {
-            m_active_biases.push_back(j);
+            memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
+            Scalar square_norm = 0.0;
+            const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
+            ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
+
+            Scalar3 mean_disp = make_scalar3(0.0, 0.0, 0.0);
+
+            // compute the bias displacement
+            for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+                {
+                unsigned int i = h_rtag.data[tag];
+                Scalar4 bias_pos = h_biases_pos.data[tag];
+                Scalar3 dr = make_scalar3(h_pos.data[i].x - bias_pos.x, h_pos.data[i].y - bias_pos.y, h_pos.data[i].z - bias_pos.z);
+                // use box to wrap
+                dr = box.minImage(dr);
+                h_bias_disp.data[i].x += dr.x;
+                h_bias_disp.data[i].y += dr.y;
+                h_bias_disp.data[i].z += dr.z;
+                if (m_subtract_mean)
+                    {
+                    mean_disp += dr;
+                    }
+                else  // if we don't subtract the mean, we can immediately compute the square norm
+                    {
+                    Scalar w = dot(dr, dr);
+                    h_bias_disp.data[i].w = w;
+                    square_norm += w;
+                    }
+                }
+
+            // subtract the mean displacement if flag is set
+            if (m_subtract_mean)
+                {
+                mean_disp /= m_pdata->getN();
+                for (unsigned int i = 0; i < m_pdata->getN(); i++)
+                    {
+                    h_bias_disp.data[i].x -= mean_disp.x;
+                    h_bias_disp.data[i].y -= mean_disp.y;
+                    h_bias_disp.data[i].z -= mean_disp.z;
+                    // with the mean subtracted, we can now compute the square norm
+                    Scalar3 dr = make_scalar3(h_bias_disp.data[i].x, h_bias_disp.data[i].y, h_bias_disp.data[i].z);
+                    Scalar w = dot(dr, dr);
+                    h_bias_disp.data[i].w = w;
+                    square_norm += w;
+                    }
+                }
+            
+            if (square_norm < (m_sigma + m_bias_buffer) * (m_sigma + m_bias_buffer))
+                {
+                m_active_biases.push_back(j);
+                }
             }
+
+        for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+            {
+            unsigned int i = h_rtag.data[tag];
+            h_last_buffer_pos.data[tag] = h_pos.data[i];
+            }
+        
+        m_nlist_rebuilds++;
         }
     }
 
@@ -424,7 +562,7 @@ namespace detail
 void export_Mimse(pybind11::module& m)
     {
     pybind11::class_<Mimse, ForceCompute, std::shared_ptr<Mimse>>(m, "Mimse")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, bool>())
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, bool>())
         .def("pushBackCurrentPos", &Mimse::pushBackCurrentPos)
         .def("pushBackBias", &Mimse::pushBackBiasArray)
         .def("popBackBias", &Mimse::popBackBias)
@@ -439,7 +577,9 @@ void export_Mimse(pybind11::module& m)
         .def("setEpsilon", &Mimse::setEpsilon)
         .def("getSigma", &Mimse::getSigma)
         .def("getEpsilon", &Mimse::getEpsilon)
-        .def("getComputes", &Mimse::getComputes);
+        .def("getComputes", &Mimse::getComputes)
+        .def("getActiveBiases", &Mimse::getActiveBiases)
+        .def("getNlistRebuilds", &Mimse::getNlistRebuilds);
     }
 
     } // end namespace detail
@@ -449,8 +589,8 @@ void export_Mimse(pybind11::module& m)
 
 #ifdef ENABLE_HIP
 
-MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean)
-    : Mimse(sysdef, sigma, epsilon, subtract_mean)
+MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean)
+    : Mimse(sysdef, sigma, epsilon, bias_buffer, subtract_mean)
     {
     // only one GPU is supported
     if (!m_exec_conf->isCUDAEnabled())
@@ -555,7 +695,7 @@ void export_MimseGPU(pybind11::module& m)
     pybind11::class_<MimseGPU, Mimse, std::shared_ptr<MimseGPU>>(
         m,
         "MimseGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, bool>())
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, bool>())
         .def("pushBackCurrentPos", &MimseGPU::pushBackCurrentPos);
     }
 

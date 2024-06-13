@@ -5,9 +5,9 @@ import matplotlib as mpl
 import matplotlib.colors as mcolors
 from hoomd.mimse import __version__ as mimse_version
 
-folder = pathlib.Path(__file__).parent / 'output' / mimse_version
+folder = pathlib.Path(__file__).parent / 'output'
 
-files = folder.glob('*.txt')
+files = folder.glob('*/*.txt')
 
 norm = mcolors.LogNorm(vmin=100, vmax=100_000)
 
@@ -34,4 +34,4 @@ plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.xlabel("Number of biases")
 plt.ylabel(r"Performance $\left(\frac{\text{steps}}{\Delta t \cdot N}\right)$")
 plt.yscale('log')
-plt.savefig(folder / 'performance.png', bbox_inches='tight')
+plt.savefig(folder / 'performance-comp.png', bbox_inches='tight')

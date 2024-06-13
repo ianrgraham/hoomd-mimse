@@ -201,6 +201,7 @@ class MDPair(common.Benchmark):
             mimse_force.kick(random_kick)
 
         computes_steps = mimse_force._n_compute_steps()
+        rebuilds = mimse_force._nlist_rebuilds()
 
         fire.reset()
         start = time.time()
@@ -216,9 +217,15 @@ class MDPair(common.Benchmark):
                 pbar.set_postfix(energy=energy, max_force=max_force, inner=inner)
         t = time.time() - start
         new_computes_steps = mimse_force._n_compute_steps()
+        new_rebuilds = mimse_force._nlist_rebuilds()
         steps = new_computes_steps - computes_steps
+        rebuild_perf = (new_rebuilds - rebuilds)/steps
+        rebuilds = new_rebuilds
         computes_steps = new_computes_steps
         performance.append(steps/t/self.N)
+
+        size = mimse_force.size()
+        active = len(mimse_force.get_active_biases())
 
         with tqdm.tqdm() as pbar:
             for i in range(self.n_biases):
@@ -235,12 +242,17 @@ class MDPair(common.Benchmark):
                     # print(force)
                     max_force = np.mean(np.linalg.norm(force, axis=1))
                     inner += 1
-                    pbar.set_postfix(energy=energy, max_force=max_force, inner=inner)
+                    pbar.set_postfix(energy=energy, max_force=max_force, inner=inner, size=size, active=active, rebuild_perf=rebuild_perf)
                 t = time.time() - start
                 new_computes_steps = mimse_force._n_compute_steps()
+                new_rebuilds = mimse_force._nlist_rebuilds()
                 steps = new_computes_steps - computes_steps
+                rebuild_perf = (new_rebuilds - rebuilds)/steps
+                rebuilds = new_rebuilds
                 computes_steps = new_computes_steps
                 performance.append(steps/t/self.N)
                 pbar.update(1)
-
+                size = mimse_force.size()
+                active = len(mimse_force.get_active_biases())
+        
         return performance

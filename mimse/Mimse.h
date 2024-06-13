@@ -58,7 +58,7 @@ class Mimse : public ForceCompute
 
     public:
     //! Constructor
-    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean);
+    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean);
 
     ~Mimse();
 
@@ -112,6 +112,16 @@ class Mimse : public ForceCompute
         return m_computes;
         }
 
+    std::vector<unsigned int> getActiveBiases()
+        {
+        return m_active_biases;
+        }
+
+    unsigned int getNlistRebuilds()
+        {
+        return m_nlist_rebuilds;
+        }
+
     protected:
     //! Build the list of molecules
     /*! Called at initialization, if bonds are modified, or mode is changed
@@ -149,6 +159,7 @@ class Mimse : public ForceCompute
 
     // track times the forceCompute method is called to help benchmark
     unsigned int m_computes = 0;
+    unsigned int m_nlist_rebuilds = 0;
 
     };
 
@@ -169,7 +180,7 @@ class MimseGPU : public Mimse
     {
     public:
     //! Constructor
-    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, bool subtract_mean);
+    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean);
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);

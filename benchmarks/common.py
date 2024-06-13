@@ -6,6 +6,7 @@
 import argparse
 
 import hoomd
+import hoomd.mimse
 import numpy
 import pathlib
 
@@ -15,6 +16,8 @@ DEFAULT_REPEAT = 1
 DEFAULT_N = 1000
 DEFAULT_RHO = 1.0
 DEFAULT_DIMENSIONS = 3
+
+mimse_version = hoomd.mimse.__version__
 
 
 def make_hoomd_device(args):
@@ -224,7 +227,8 @@ class Benchmark:
             print(f'{performance}')
 
             # write out the performance data
-            file = pathlib.Path(__file__).parent / 'output' / f'perf_{dev}_N-{benchmark.N}_dim-{benchmark.dimensions}.txt'
+            file = pathlib.Path(__file__).parent / 'output' / mimse_version / f'perf_{dev}_N-{benchmark.N}_dim-{benchmark.dimensions}.txt'
+            file.parent.mkdir(parents=True, exist_ok=True)
             numpy.savetxt(file, performance)
 
 

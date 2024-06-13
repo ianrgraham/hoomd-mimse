@@ -11,27 +11,31 @@ from hoomd.md.force import Force
 class Mimse(Force):
     """Mimse."""
 
-    def __init__(self, sigma, epsilon, subtract_mean=True):
+    def __init__(self, sigma, epsilon, bias_buffer=None, subtract_mean=True):
         assert subtract_mean in (True, False)
         assert sigma > 0
         assert epsilon > 0
+
+        if bias_buffer is None:
+            bias_buffer = sigma
 
         # initialize base class
         super().__init__()
         self._sigma = sigma
         self._epsilon = epsilon
         self._subtract_mean = subtract_mean
+        self._bias_buffer = bias_buffer
 
     def _attach_hook(self):
         # initialize the reflected c++ class
         if isinstance(self._simulation.device, hoomd.device.CPU):
             self._cpp_obj = _mimse.Mimse(
                 self._simulation.state._cpp_sys_def,
-                self._sigma, self._epsilon, self._subtract_mean)
+                self._sigma, self._epsilon, self._bias_buffer, self._subtract_mean)
         else:
             self._cpp_obj = _mimse.MimseGPU(
                 self._simulation.state._cpp_sys_def,
-                self._sigma, self._epsilon, self._subtract_mean)
+                self._sigma, self._epsilon, self._bias_buffer, self._subtract_mean)
             
     def push_back_current_pos(self):
         """Push back current positions."""
@@ -96,3 +100,11 @@ class Mimse(Force):
     def _n_compute_steps(self):
         """Number of compute steps."""
         return self._cpp_obj.getComputes()
+    
+    def _nlist_rebuilds(self):
+        """Number of neighbor list rebuilds."""
+        return self._cpp_obj.getNlistRebuilds()
+    
+    def get_active_biases(self):
+        """Active biases."""
+        return self._cpp_obj.getActiveBiases()
