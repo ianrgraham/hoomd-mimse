@@ -6,4 +6,4 @@
 from hoomd.mimse import mimse
 
 
-__version__ = 'v0.2.0-alpha1'
+__version__ = 'v0.2.0'

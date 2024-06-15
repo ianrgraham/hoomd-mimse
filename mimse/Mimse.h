@@ -23,6 +23,7 @@
 // TODO: replace random number generator with parallel RNG
 // #include "RandomNumbers.h"
 #include <random>  // NOTE: we'll use the std::rand for now
+#include <memory>
 
 namespace hoomd
     {
@@ -32,23 +33,6 @@ enum class MimseMode
     PARTICLE,
     MOLECULE
     };
-
-enum class MemoryMode
-    {
-    TAG,  // Store the biases by particle tag
-    RTAG  // Store particle by reverse tag (same as pdata arrays due to ParticleSorter behaviour) (UNIMPLEMENTED)
-    };
-
-// (if you really don't want to include the whole hoomd.h, you can include individual files IF AND
-// ONLY IF hoomd_config.h is included first) For example: #include <hoomd/Updater.h>
-
-// Second, we need to declare the class. One could just as easily use any class in HOOMD as a
-// template here, there are no restrictions on what a template can do
-
-// TODO: include different operating modes, say where we use molecule center of mass instead of individual particles
-// Current impl requires us to drive the method from python
-// We could include a mode where the minimizer object is hooked into the force, and the force controls the restarting of the minimizer and placing of bias
-// We would want this behaviour to be switchable from python
 
 //! Computes the forces for the Mimse potential
 /*! 
@@ -60,7 +44,7 @@ class Mimse : public ForceCompute
     //! Constructor
     Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean);
 
-    ~Mimse();
+    virtual ~Mimse();
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);
@@ -91,30 +75,15 @@ class Mimse : public ForceCompute
 
     void setEpsilon(Scalar epsilon);
 
+    unsigned int getActiveBiases();
+
     Scalar getSigma();
 
     Scalar getEpsilon();
 
-    //! Set the mode of operation
-    /*! The mode of operation can be either PARTICLE or MOLECULE
-     */
-    void setMode(MimseMode mode)
-        {
-        m_mode = mode;
-        if (m_mode == MimseMode::MOLECULE)
-            {
-            buildMoleculeList();
-            }
-        }
-
     unsigned int getComputes()
         {
         return m_computes;
-        }
-
-    std::vector<unsigned int> getActiveBiases()
-        {
-        return m_active_biases;
         }
 
     unsigned int getNlistRebuilds()
@@ -123,21 +92,14 @@ class Mimse : public ForceCompute
         }
 
     protected:
-    //! Build the list of molecules
-    /*! Called at initialization, if bonds are modified, or mode is changed
-     */
-    void buildMoleculeList()
-        {
-        }
 
     void computeActiveBiases();
 
-    std::deque<GlobalArray<Scalar4>> m_biases_pos;
+    std::deque<std::shared_ptr<GlobalArray<Scalar4>>> m_biases_pos;
     GlobalArray<Scalar4> m_bias_disp;
     Scalar m_sigma;
     Scalar m_epsilon;
-    MimseMode m_mode = MimseMode::PARTICLE;
-    MemoryMode m_memory_mode = MemoryMode::TAG;
+    const MimseMode m_mode = MimseMode::PARTICLE;
     // TODO:
     // HOOMD really should have some way to resort arrays if the ParticleSorter reorders particles
     // Though we can manage by just storing the recent rtag array
@@ -154,7 +116,7 @@ class Mimse : public ForceCompute
     bool m_subtract_mean;
 
     GlobalArray<Scalar4> m_last_buffer_pos;
-    std::vector<unsigned int> m_active_biases;
+    std::vector<std::weak_ptr<GlobalArray<Scalar4>>> m_active_biases;
     Scalar m_bias_buffer;
 
     // track times the forceCompute method is called to help benchmark
@@ -188,6 +150,8 @@ class MimseGPU : public Mimse
     void pushBackBias(const GlobalArray<Scalar4> &bias_pos);
 
     void pushBackCurrentPos();
+
+    void computeActiveBiases();
 
     protected:
     GPUArray<Scalar> m_reduce_sum;

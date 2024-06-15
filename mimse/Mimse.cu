@@ -382,14 +382,6 @@ hipError_t gpu_compute_bias_disp(const Scalar4* d_pos,
     else
         hipLaunchKernelGGL(gpu_compute_bias_disp_kernel, dim3(grid), dim3(threads), 0, 0, d_pos, d_tag, d_disp, d_biases_pos, box, N);
 
-    // print out displacement
-    // thrust::device_ptr<Scalar4> dev_ptr(d_disp);
-    // thrust::host_vector<Scalar4> host_vec(dev_ptr, dev_ptr + N);
-    // for (unsigned int i = 0; i < N; i++)
-    //     {
-    //     std::cout << "disp[" << i << "]: " << host_vec[i].x << " " << host_vec[i].y << " " << host_vec[i].z << " " << host_vec[i].w << std::endl;
-    //     }
-
     return hipSuccess;
     }
 
@@ -451,6 +443,60 @@ hipError_t gpu_copy_by_rtag_scalar4(Scalar4* d_dest,
     dim3 threads(block_size, 1, 1);
 
     hipLaunchKernelGGL(gpu_copy_by_rtag_scalar4_kernel, dim3(grid), dim3(threads), 0, 0, d_dest, d_src, d_rtag, N);
+
+    return hipSuccess;
+    }
+
+__global__ void gpu_copy_scalar4_kernel(Scalar4* d_dest,
+                           const Scalar4* d_src,
+                           const unsigned int N)
+    {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < N)
+        {
+        d_dest[idx] = d_src[idx];
+        }
+    }
+
+hipError_t gpu_copy_scalar4(Scalar4* d_dest,
+                           const Scalar4* d_src,
+                           const unsigned int N)
+    {
+    int block_size = 256;
+    dim3 grid((int)ceil((double)N / (double)block_size), 1, 1);
+    dim3 threads(block_size, 1, 1);
+
+    hipLaunchKernelGGL(gpu_copy_scalar4_kernel, dim3(grid), dim3(threads), 0, 0, d_dest, d_src, N);
+
+    return hipSuccess;
+    }
+
+hipError_t gpu_reduce_bias_disp(const Scalar4* d_bias_disp,
+                            Scalar* d_reduce_sum,
+                            Scalar* sum,
+                            const unsigned int N)
+    {
+    int block_size = 256;
+    dim3 grid((int)ceil((double)N / (double)block_size), 1, 1);
+    dim3 threads(block_size, 1, 1);
+    unsigned int M = grid.x;
+
+    // apply reduction
+    int memsize = block_size * sizeof(Scalar);
+    hipLaunchKernelGGL(gpu_reduce_bias_disp_w_kernel, dim3(grid), dim3(threads), memsize, 0, d_bias_disp, d_reduce_sum, N);
+    // apply further reductions until we have a single value
+    while (M > 1)
+        {
+        grid.x = (int)ceil((double)M / (double)block_size);
+        hipLaunchKernelGGL(gpu_reduce_scalar_kernel, dim3(grid), dim3(threads), memsize, 0, d_reduce_sum, M);
+        M = grid.x;
+        }
+
+    // copy the result back
+    hipMemcpy(sum, d_reduce_sum, sizeof(Scalar), hipMemcpyDeviceToHost);
+    // synchronize
+    // hipDeviceSynchronize();
 
     return hipSuccess;
     }

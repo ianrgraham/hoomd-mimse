@@ -39,6 +39,16 @@ hipError_t gpu_copy_by_rtag_scalar4(Scalar4* d_dest,
                            const unsigned int* d_rtag,
                            const unsigned int N);
 
+hipError_t gpu_copy_scalar4(Scalar4* d_dest,
+                           const Scalar4* d_src,
+                           const unsigned int N);
+
+hipError_t gpu_reduce_bias_disp(const Scalar4* d_bias_disp,
+                            Scalar* d_reduce_sum,
+                            Scalar* sum,
+                            const unsigned int N);
+
+
 // #ifdef __HIPCC__
 // template<typename T>
 // __global__ void gpu_copy_by_rtag_kernel(T* d_dest,

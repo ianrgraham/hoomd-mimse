@@ -105,6 +105,6 @@ class Mimse(Force):
         """Number of neighbor list rebuilds."""
         return self._cpp_obj.getNlistRebuilds()
     
-    def get_active_biases(self):
+    def _n_active_biases(self):
         """Active biases."""
         return self._cpp_obj.getActiveBiases()

@@ -6,6 +6,10 @@
 #include "Mimse.cuh"
 #endif
 
+// #include "thrust/device_ptr.h"
+#include "thrust/device_vector.h"
+#include "thrust/host_vector.h"
+
 /*! \file Mimse.cc
     \brief Definition of Mimse
 */
@@ -56,7 +60,8 @@ void Mimse::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
         unsigned int i = h_rtag.data[tag];
         h_copy.data[tag] = h_biases_pos.data[i];
         }
-    m_biases_pos.push_back(copy);
+    std::shared_ptr<GlobalArray<Scalar4>> copy_ptr = std::make_shared<GlobalArray<Scalar4>>(copy);
+    m_biases_pos.push_back(copy_ptr);
 
     if (m_last_buffer_pos.isNull())
         {
@@ -68,11 +73,11 @@ void Mimse::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
         for (unsigned int tag = 0; tag < N; tag++)
             {
             unsigned int i = h_rtag.data[tag];
-            h_copy.data[tag] = h_biases_pos.data[i];
+            h_last_buffer_pos.data[tag] = h_biases_pos.data[i];
             }
         }
-    size_t n_buffers = m_biases_pos.size();
-    m_active_biases.push_back(static_cast<unsigned int>(n_buffers) - 1);
+    std::weak_ptr<GlobalArray<Scalar4>> copy_weak = copy_ptr;
+    m_active_biases.push_back(copy_weak);
     }
 
 void Mimse::pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos)
@@ -91,7 +96,8 @@ void Mimse::pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos)
         {
         h_copy.data[i] = make_scalar4(((Scalar*)info.ptr)[3*i], ((Scalar*)info.ptr)[3*i+1], ((Scalar*)info.ptr)[3*i+2], 1.0);
         }
-    m_biases_pos.push_back(copy);
+    std::shared_ptr<GlobalArray<Scalar4>> copy_ptr = std::make_shared<GlobalArray<Scalar4>>(copy);
+    m_biases_pos.push_back(copy_ptr);
 
     if (m_last_buffer_pos.isNull())
         {
@@ -100,54 +106,30 @@ void Mimse::pushBackBiasArray(const pybind11::array_t<Scalar> &bias_pos)
         TAG_ALLOCATION(m_last_buffer_pos);
 
         ArrayHandle<Scalar4> h_last_buffer_pos(m_last_buffer_pos, access_location::host, access_mode::overwrite);
-
         for (unsigned int i = 0; i < N; i++)
             {
             h_last_buffer_pos.data[i] = make_scalar4(((Scalar*)info.ptr)[3*i], ((Scalar*)info.ptr)[3*i+1], ((Scalar*)info.ptr)[3*i+2], 1.0);
             }
         }
     
-    size_t n_buffers = m_biases_pos.size();
-    m_active_biases.push_back(static_cast<unsigned int>(n_buffers) - 1);
+    std::weak_ptr<GlobalArray<Scalar4>> copy_weak = copy_ptr;
+    m_active_biases.push_back(copy_weak);
     }
 
 void Mimse::popBackBias()
     {
     m_biases_pos.pop_back();
-
-    // remove from active biases
-    unsigned int idx = static_cast<unsigned int>(m_biases_pos.size());
-    // find the index in the active biases
-    for (unsigned int i = 0; i < m_active_biases.size(); i++)
-        {
-        if (m_active_biases[i] == idx)
-            {
-            m_active_biases.erase(m_active_biases.begin() + i);
-            break;
-            }
-        }
     }
 
 void Mimse::popFrontBias()
     {
     m_biases_pos.pop_front();
-
-    unsigned int idx = 0;
-    // find the index in the active biases
-    for (unsigned int i = 0; i < m_active_biases.size(); i++)
-        {
-        if (m_active_biases[i] == idx)
-            {
-            m_active_biases.erase(m_active_biases.begin() + i);
-            break;
-            }
-        }
     }
 
 void Mimse::clearBiases()
     {
     m_biases_pos.clear();
-    m_active_biases.clear();
+    m_active_biases.clear();  // Not necessary, but we may as well clear the active biases
     }
 
 // TODO: this is definitely wrong under MPI
@@ -178,7 +160,8 @@ pybind11::object Mimse::getBiases()
 
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
-        ArrayHandle<Scalar4> h_bias(m_biases_pos[j], access_location::host, access_mode::read);
+        const GlobalArray<Scalar4> &bias_pos_j = *m_biases_pos[j];
+        ArrayHandle<Scalar4> h_bias(bias_pos_j, access_location::host, access_mode::read);
         
         std::vector<vec3<double>> global_bias(dims[0]);
 
@@ -291,7 +274,7 @@ void Mimse::pruneBiases(Scalar delta)
     for (unsigned int j = 0; j < m_biases_pos.size(); j++)
         {
         Scalar square_norm = 0.0;
-        const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
+        const GlobalArray<Scalar4> &bias_pos_j = *m_biases_pos[j];
         ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
 
         // compute the bias displacement
@@ -299,7 +282,6 @@ void Mimse::pruneBiases(Scalar delta)
             {
             unsigned int i = h_rtag.data[tag];
             Scalar4 bias_pos = h_biases_pos.data[tag];
-            // TODO: need to use box to wrap the displacement vector
             Scalar3 dr = make_scalar3(bias_pos.x - h_pos.data[i].x, bias_pos.y - h_pos.data[i].y, bias_pos.z - h_pos.data[i].z);
             dr = box.minImage(dr);
             square_norm += dot(dr, dr);
@@ -315,20 +297,6 @@ void Mimse::pruneBiases(Scalar delta)
         {
         m_biases_pos.erase(m_biases_pos.begin() + to_remove[i-1]);
         }
-
-    // convert to_remove to a set and find indices
-
-    // std::set<unsigned int> to_remove_set(to_remove.begin(), to_remove.end());
-
-    // std::vector<unsigned int> to_remove_active;
-
-    // for (unsigned int i = 0; i < m_active_biases.size(); i++)
-    //     {
-    //     if (to_remove_set.find(m_active_biases[i]) != to_remove_set.end())
-    //         {
-    //         m_active_biases.erase(m_active_biases.begin() + i);
-    //         }
-    //     }
     }
 
 void Mimse::setSigma(Scalar sigma)
@@ -377,73 +345,76 @@ void Mimse::computeForces(uint64_t timestep)
     computeActiveBiases();
 
     // for (unsigned int j = 0; j < m_biases_pos.size(); j++)
-    for (auto j : m_active_biases)  // this is not ready for prime time
+    for (auto bias_pos_j_weak : m_active_biases)  // this is not ready for prime time
         {
         memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
         Scalar square_norm = 0.0;
-        const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
-        ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
-
-        Scalar3 mean_disp = make_scalar3(0.0, 0.0, 0.0);
-
-        // compute the bias displacement
-        for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+        if (std::shared_ptr<GlobalArray<Scalar4>> bias_pos_j = bias_pos_j_weak.lock())
             {
-            unsigned int i = h_rtag.data[tag];
-            Scalar4 bias_pos = h_biases_pos.data[tag];
-            Scalar3 dr = make_scalar3(h_pos.data[i].x - bias_pos.x, h_pos.data[i].y - bias_pos.y, h_pos.data[i].z - bias_pos.z);
-            // use box to wrap
-            dr = box.minImage(dr);
-            h_bias_disp.data[i].x += dr.x;
-            h_bias_disp.data[i].y += dr.y;
-            h_bias_disp.data[i].z += dr.z;
+            const GlobalArray<Scalar4> &bias_pos_j_ref = *bias_pos_j;
+            ArrayHandle<Scalar4> h_biases_pos(bias_pos_j_ref, access_location::host, access_mode::read);
+
+            Scalar3 mean_disp = make_scalar3(0.0, 0.0, 0.0);
+
+            // compute the bias displacement
+            for (unsigned int tag = 0; tag < m_pdata->getN(); tag++)
+                {
+                unsigned int i = h_rtag.data[tag];
+                Scalar4 bias_pos = h_biases_pos.data[tag];
+                Scalar3 dr = make_scalar3(h_pos.data[i].x - bias_pos.x, h_pos.data[i].y - bias_pos.y, h_pos.data[i].z - bias_pos.z);
+                // use box to wrap
+                dr = box.minImage(dr);
+                h_bias_disp.data[i].x = dr.x;
+                h_bias_disp.data[i].y = dr.y;
+                h_bias_disp.data[i].z = dr.z;
+                if (m_subtract_mean)
+                    {
+                    mean_disp += dr;
+                    }
+                else  // if we don't subtract the mean, we can immediately compute the square norm
+                    {
+                    Scalar w = dot(dr, dr);
+                    h_bias_disp.data[i].w = w;
+                    square_norm += w;
+                    }
+                }
+
+            // subtract the mean displacement if flag is set
             if (m_subtract_mean)
                 {
-                mean_disp += dr;
+                mean_disp /= m_pdata->getN();
+                for (unsigned int i = 0; i < m_pdata->getN(); i++)
+                    {
+                    h_bias_disp.data[i].x -= mean_disp.x;
+                    h_bias_disp.data[i].y -= mean_disp.y;
+                    h_bias_disp.data[i].z -= mean_disp.z;
+                    // with the mean subtracted, we can now compute the square norm
+                    Scalar3 dr = make_scalar3(h_bias_disp.data[i].x, h_bias_disp.data[i].y, h_bias_disp.data[i].z);
+                    Scalar w = dot(dr, dr);
+                    h_bias_disp.data[i].w = w;
+                    square_norm += w;
+                    }
                 }
-            else  // if we don't subtract the mean, we can immediately compute the square norm
-                {
-                Scalar w = dot(dr, dr);
-                h_bias_disp.data[i].w = w;
-                square_norm += w;
-                }
-            }
 
-        // subtract the mean displacement if flag is set
-        if (m_subtract_mean)
-            {
-            mean_disp /= m_pdata->getN();
+            // if the norm is greater than sigma, skip this bias
+            if (square_norm >= m_sigma * m_sigma)
+                continue;
+
+            // compute the force and apply it
+            Scalar r2inv = 1.0/square_norm;
+            Scalar sigma_square = m_sigma * m_sigma;
+            Scalar term = (1 - square_norm / sigma_square);
+            Scalar force_divr = 4.0 * m_epsilon * term / sigma_square;
+
+            Scalar energy_div2r = m_epsilon * term * term * r2inv;
+
             for (unsigned int i = 0; i < m_pdata->getN(); i++)
                 {
-                h_bias_disp.data[i].x -= mean_disp.x;
-                h_bias_disp.data[i].y -= mean_disp.y;
-                h_bias_disp.data[i].z -= mean_disp.z;
-                // with the mean subtracted, we can now compute the square norm
-                Scalar3 dr = make_scalar3(h_bias_disp.data[i].x, h_bias_disp.data[i].y, h_bias_disp.data[i].z);
-                Scalar w = dot(dr, dr);
-                h_bias_disp.data[i].w = w;
-                square_norm += w;
+                h_force.data[i].x += h_bias_disp.data[i].x * force_divr;
+                h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
+                h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
+                h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;
                 }
-            }
-
-        // if the norm is greater than sigma, skip this bias
-        if (square_norm >= m_sigma * m_sigma)
-            continue;
-
-        // compute the force and apply it
-        Scalar r2inv = 1.0/square_norm;
-        Scalar sigma_square = m_sigma * m_sigma;
-        Scalar term = (1 - square_norm / sigma_square);
-        Scalar force_divr = 4.0 * m_epsilon * term / sigma_square;
-
-        Scalar energy_div2r = m_epsilon * term * term * r2inv;  // TODO: uncomment if we want to compute the energy
-
-        for (unsigned int i = 0; i < m_pdata->getN(); i++)
-            {
-            h_force.data[i].x += h_bias_disp.data[i].x * force_divr;
-            h_force.data[i].y += h_bias_disp.data[i].y * force_divr;
-            h_force.data[i].z += h_bias_disp.data[i].z * force_divr;
-            h_force.data[i].w += h_bias_disp.data[i].w * energy_div2r;  // TODO: check that this energy def. is OK
             }
         }
     
@@ -490,12 +461,12 @@ void Mimse::computeActiveBiases()
 
         ArrayHandle<Scalar4> h_bias_disp(m_bias_disp, access_location::host, access_mode::readwrite);
 
-        for (unsigned int j = 0; j < m_biases_pos.size(); j++)
+        for (auto bias_pos_j : m_biases_pos)
             {
             memset((void*)h_bias_disp.data, 0, sizeof(Scalar4) * m_bias_disp.getNumElements());
             Scalar square_norm = 0.0;
-            const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
-            ArrayHandle<Scalar4> h_biases_pos(bias_pos_j, access_location::host, access_mode::read);
+            const GlobalArray<Scalar4> &bias_pos_j_ref = *bias_pos_j;
+            ArrayHandle<Scalar4> h_biases_pos(bias_pos_j_ref, access_location::host, access_mode::read);
 
             Scalar3 mean_disp = make_scalar3(0.0, 0.0, 0.0);
 
@@ -541,7 +512,8 @@ void Mimse::computeActiveBiases()
             
             if (square_norm < (m_sigma + m_bias_buffer) * (m_sigma + m_bias_buffer))
                 {
-                m_active_biases.push_back(j);
+                std::weak_ptr<GlobalArray<Scalar4>> bias_weak = bias_pos_j;
+                m_active_biases.push_back(bias_weak);
                 }
             }
 
@@ -553,6 +525,11 @@ void Mimse::computeActiveBiases()
         
         m_nlist_rebuilds++;
         }
+    }
+
+unsigned int Mimse::getActiveBiases()
+    {
+    return static_cast<unsigned int>(m_active_biases.size());
     }
 
 namespace detail
@@ -630,33 +607,114 @@ void MimseGPU::computeForces(uint64_t timestep)
 
     BoxDim box = m_pdata->getGlobalBox();
 
-    // computeActiveBiases();
+    computeActiveBiases();
 
-    for (unsigned int j = 0; j < m_biases_pos.size(); j++)
-    // for (auto j : m_active_biases)  // this is not ready for prime time
+    for (const std::weak_ptr<hoomd::GlobalArray<hoomd::Scalar4>>& bias_pos_j_weak : m_active_biases)
         {
-        const GlobalArray<Scalar4> &bias_pos_j = m_biases_pos[j];
+        if (std::shared_ptr<GlobalArray<Scalar4>> bias_pos_j = bias_pos_j_weak.lock())
+            {
+            const GlobalArray<Scalar4> &bias_pos_j_ref = *bias_pos_j;
+            ArrayHandle<Scalar4> d_biases_pos(bias_pos_j_ref, access_location::device, access_mode::read);
+            
+            kernel::gpu_compute_bias_disp(d_pos.data,
+                                        d_tag.data,
+                                        d_bias_disp.data,
+                                        d_biases_pos.data,
+                                        box,
+                                        m_subtract_mean,
+                                        d_reduce_mean.data,
+                                        m_pdata->getN());
 
-        ArrayHandle<Scalar4> d_biases_pos(bias_pos_j, access_location::device, access_mode::read);
-        
-        kernel::gpu_compute_bias_disp(d_pos.data,
-                                      d_tag.data,
-                                      d_bias_disp.data,
-                                      d_biases_pos.data,
-                                      box,
-                                      m_subtract_mean,
-                                      d_reduce_mean.data,
-                                      m_pdata->getN());
-
-        kernel::gpu_apply_bias_force(d_bias_disp.data,
-                                     d_reduce_sum.data,
-                                     d_force.data,
-                                     m_epsilon,
-                                     m_sigma,
-                                     m_pdata->getN());
+            kernel::gpu_apply_bias_force(d_bias_disp.data,
+                                        d_reduce_sum.data,
+                                        d_force.data,
+                                        m_epsilon,
+                                        m_sigma,
+                                        m_pdata->getN());
+            }
         }
 
     m_computes++;
+    }
+
+void MimseGPU::computeActiveBiases()
+    {
+    if (m_last_buffer_pos.isNull())
+        return;
+
+    // get pos handle on host
+    ArrayHandle<Scalar4> d_pos(m_pdata->getPositions(),
+                               access_location::device,
+                               access_mode::read);
+
+    // get bias pos buffer handle on host
+    ArrayHandle<Scalar4> d_last_buffer_pos(m_last_buffer_pos, access_location::device, access_mode::readwrite);
+    ArrayHandle<Scalar3> d_reduce_mean(m_reduce_mean, access_location::device, access_mode::readwrite);
+    ArrayHandle<Scalar4> d_bias_disp(m_bias_disp, access_location::device, access_mode::readwrite);
+
+    // get rtag handle on host
+    ArrayHandle<unsigned int> d_tag(m_pdata->getTags(),
+                                     access_location::device,
+                                     access_mode::read);
+
+    ArrayHandle<unsigned int> d_rtag(m_pdata->getRTags(),
+                                     access_location::device,
+                                     access_mode::read);
+
+    BoxDim box = m_pdata->getGlobalBox();
+    unsigned int N = m_pdata->getN();
+
+    kernel::gpu_compute_bias_disp(d_pos.data,
+                                  d_tag.data,
+                                  d_bias_disp.data,
+                                  d_last_buffer_pos.data,
+                                  box,
+                                  m_subtract_mean,
+                                  d_reduce_mean.data,
+                                  N);
+
+    // copy pos, last_buffer_pos, and bias_disp from device to host with cuda
+
+    thrust::device_ptr<Scalar4> d_pos_ptr(d_pos.data);
+    thrust::host_vector<Scalar4> h_pos(d_pos_ptr, d_pos_ptr + m_pdata->getN());
+
+
+    Scalar square_norm;
+    ArrayHandle<Scalar> d_reduce_sum(m_reduce_sum, access_location::device, access_mode::readwrite);
+    kernel::gpu_reduce_bias_disp(d_bias_disp.data, d_reduce_sum.data, &square_norm, m_pdata->getN());
+
+    // TODO compute active biases on GPU
+    if (square_norm >= (m_bias_buffer) * (m_bias_buffer))
+        {
+        m_active_biases.clear();
+
+        for (auto bias_pos_j : m_biases_pos)
+            {
+            Scalar square_norm = 0.0;
+            const GlobalArray<Scalar4> &bias_pos_j_ref = *bias_pos_j;
+            ArrayHandle<Scalar4> d_biases_pos(bias_pos_j_ref, access_location::device, access_mode::read);
+
+            kernel::gpu_compute_bias_disp(d_pos.data,
+                                        d_tag.data,
+                                        d_bias_disp.data,
+                                        d_biases_pos.data,
+                                        box,
+                                        m_subtract_mean,
+                                        d_reduce_mean.data,
+                                        N);
+
+            kernel::gpu_reduce_bias_disp(d_bias_disp.data, d_reduce_sum.data, &square_norm, N);
+            
+            if (square_norm < (m_sigma + m_bias_buffer) * (m_sigma + m_bias_buffer))
+                {
+                std::weak_ptr<GlobalArray<Scalar4>> bias_weak = bias_pos_j;
+                m_active_biases.push_back(bias_weak);
+                }
+            }
+
+        kernel::gpu_copy_by_rtag_scalar4(d_last_buffer_pos.data, d_pos.data, d_rtag.data, N);
+        m_nlist_rebuilds++;
+        }
     }
 
 void MimseGPU::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
@@ -675,7 +733,21 @@ void MimseGPU::pushBackBias(const GlobalArray<Scalar4> &bias_pos)
 
     kernel::gpu_copy_by_rtag_scalar4(d_copy.data, d_biases_pos.data, d_rtag.data, N);
 
-    m_biases_pos.push_back(copy);
+    std::shared_ptr<GlobalArray<Scalar4>> copy_ptr = std::make_shared<GlobalArray<Scalar4>>(copy);
+    m_biases_pos.push_back(copy_ptr);
+
+    if (m_last_buffer_pos.isNull())
+        {
+        GlobalArray<Scalar4> last_buffer_pos(N, m_exec_conf);
+        m_last_buffer_pos.swap(last_buffer_pos);
+        TAG_ALLOCATION(m_last_buffer_pos);
+
+        // copy the bias pos to the last buffer
+        ArrayHandle<Scalar4> d_last_buffer_pos(m_last_buffer_pos, access_location::device, access_mode::overwrite);
+        kernel::gpu_copy_scalar4(d_last_buffer_pos.data, d_biases_pos.data, N);
+        }
+    std::weak_ptr<GlobalArray<Scalar4>> copy_weak = copy_ptr;
+    m_active_biases.push_back(copy_weak);
     }
 
 void MimseGPU::pushBackCurrentPos()
