@@ -26,7 +26,7 @@ import gsd.hoomd
 import pickle
 from natsort import natsorted
 from sklearn.linear_model import LinearRegression
-
+'''
 file_path_A = f'/home/conor/Documents/Research/hoomd_mimse_Ian/hoomd-mimse/output/quen_states_all_A/quen_A.pkl'
 file_path_B = f'/home/conor/Documents/Research/hoomd_mimse_Ian/hoomd-mimse/output/quen_states_all_B/quen_B.pkl'
 
@@ -195,3 +195,9 @@ plt.hist(distances_all, bins=100, histtype='step', label='All')
 
 plt.legend()
 plt.savefig('distances.png')
+'''
+
+output_path = f'{workspace_PATH}/output/'
+
+postfix_arr = ['A','B','C','D','E','F','G']
+
