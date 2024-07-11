@@ -74,7 +74,7 @@ plt.savefig('del_e_vs_del_r.png')
 
 output_path = f'{workspace_PATH}/output/'
 
-postfix_arr = ['A','B','C','D','E','F','G']
+postfix_arr = ['A','B','C','D']
 
 N = 256 ## number of particles
 DIM = 3 ## dimension of the system

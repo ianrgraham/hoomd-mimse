@@ -22,7 +22,7 @@ namespace hoomd
 Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean)
     : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean), m_bias_buffer(bias_buffer)
     {
-    m_rng = std::default_random_engine(); // default seed=1
+    m_rng = std::default_random_engine(time(0)); // default seed=1
     m_normal = std::normal_distribution<Scalar>(0.0, 1.0);
     GlobalArray<Scalar4> bias_disp(m_pdata->getN(), m_exec_conf);
     m_bias_disp.swap(bias_disp);
