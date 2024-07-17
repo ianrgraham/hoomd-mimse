@@ -22,6 +22,7 @@ import numpy as np
 import numpy as np
 
 import gsd.hoomd
+import freud
 
 import pickle
 from natsort import natsorted
@@ -72,9 +73,19 @@ plt.ylabel('Energy')
 plt.savefig('del_e_vs_del_r.png')
 '''
 
-output_path = f'{workspace_PATH}/output/'
 
-postfix_arr = ['A','B','C','D']
+print('Rank 0')
+cpu = hoomd.device.CPU()
+device = cpu
+print(f"Device: {device}")
+sim: hoomd.Simulation = hoomd.Simulation(device=device)
+sim = hoomd.Simulation(device, seed=42)
+sim.create_state_from_gsd(f'/home/conor/Documents/Research/hoomd_mimse_Ian/hoomd-mimse/examples/gsd_SGCOM_mimse_out_all_unwrapped_1250_Z.gsd')
+freud_box = freud.box.Box.from_box(sim.state.box)
+
+output_path = f'{workspace_PATH}/output_Z/'
+
+postfix_arr = ['B','C','D','E','F','G']
 
 N = 256 ## number of particles
 DIM = 3 ## dimension of the system
@@ -115,7 +126,7 @@ for k in range(len(postfix_arr)):
     for i in range(len(globals()[f'mimse_state_{postfix_arr[k]}'])):
 
         # calculate distance and append to distances array
-        dist = np.linalg.norm(globals()[f'mimse_state_{postfix_arr[k]}'][i]-ref_state)
+        dist = np.linalg.norm(freud_box.wrap(globals()[f'mimse_state_{postfix_arr[k]}'][i]-ref_state))
         globals()[f'distances_arr_{postfix_arr[k]}'].append(dist)
 
         globals()[f'count_{postfix_arr[k]}'] += 1

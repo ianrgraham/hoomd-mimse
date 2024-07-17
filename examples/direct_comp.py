@@ -139,7 +139,7 @@ def main():
             # break
 
             # get biases
-            # biases = mimse_force.get_biases()
+            biases = mimse_force.get_biases()
             # current_pos = sim.state.get_snapshot().particles.position
             pbar.update(1)
             # n_biases = len(biases)

@@ -198,9 +198,10 @@ plt.legend()
 plt.savefig('distances.png')
 '''
 
-output_path = f'{workspace_PATH}/output/'
+output_path = f'{workspace_PATH}/output_Z/'
 
-postfix_arr = ['A','B','C','D']
+postfix_arr = ['B','C','D','E','F','G']
+
 
 N = 256 ## number of particles
 DIM = 3 ## dimension of the system
@@ -240,12 +241,19 @@ for k in range(len(postfix_arr)):
 
 
     plt.loglog(globals()[f'sorted_dist_{postfix_arr[k]}'], globals()[f'cdf_{postfix_arr[k]}'],label = f'{postfix_arr[k]}')
-    plt.xlim([4e0, 2e2])
-    plt.ylim([1e-2, 1.4])
-    plt.xlabel('Pairwise Euclidean Distance')
-    plt.ylabel('CDF')
-    plt.title(f'CDF')
-    plt.legend()
+    
+
+
+# plot a slope of 2.7
+x_fit = np.logspace(np.log10(8e0), np.log10(4e1), 100)
+y_fit = x_fit**2.4 * 0.0003
+plt.xlim([4e0, 3e1])
+plt.ylim([1e-2, 1.4])
+plt.loglog(x_fit, y_fit, label = 'slope = 2.4', linestyle = '--')
+plt.xlabel('Pairwise Euclidean Distance')
+plt.ylabel('CDF')
+plt.title(f'CDF')
+plt.legend()
 
 plt.savefig(f'new_cdf.png')
     
