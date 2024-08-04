@@ -28,12 +28,6 @@
 namespace hoomd
     {
 
-enum class MimseMode
-    {
-    PARTICLE,
-    MOLECULE
-    };
-
 //! Computes the forces for the Mimse potential
 /*! 
  */
@@ -41,8 +35,22 @@ class Mimse : public ForceCompute
     {
 
     public:
+    enum Mode
+        {
+        PARTICLE,
+        MOLECULE
+        };
+
+    //! How biases are stored in memory
+    public:
+    enum Memory
+        {
+        TAG,
+        RTAG
+        };
+
     //! Constructor
-    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean);
+    Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean, Mode mode=Mode::PARTICLE);
 
     virtual ~Mimse();
 
@@ -99,7 +107,6 @@ class Mimse : public ForceCompute
     GlobalArray<Scalar4> m_bias_disp;
     Scalar m_sigma;
     Scalar m_epsilon;
-    const MimseMode m_mode = MimseMode::PARTICLE;
     // TODO:
     // HOOMD really should have some way to resort arrays if the ParticleSorter reorders particles
     // Though we can manage by just storing the recent rtag array
@@ -118,6 +125,8 @@ class Mimse : public ForceCompute
     GlobalArray<Scalar4> m_last_buffer_pos;
     std::vector<std::weak_ptr<GlobalArray<Scalar4>>> m_active_biases;
     Scalar m_bias_buffer;
+
+    const Mode m_mode;
 
     // track times the forceCompute method is called to help benchmark
     unsigned int m_computes = 0;
@@ -142,7 +151,7 @@ class MimseGPU : public Mimse
     {
     public:
     //! Constructor
-    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean);
+    MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean, Mode mode=Mode::PARTICLE);
 
     //! Take one timestep forward
     virtual void computeForces(uint64_t timestep);

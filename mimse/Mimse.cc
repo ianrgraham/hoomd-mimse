@@ -19,14 +19,27 @@
 
 namespace hoomd
     {
-Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean)
-    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean), m_bias_buffer(bias_buffer)
+Mimse::Mimse(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean, Mimse::Mode mode)
+    : ForceCompute(sysdef), m_sigma(sigma), m_epsilon(epsilon), m_subtract_mean(subtract_mean), m_bias_buffer(bias_buffer), m_mode(mode)
     {
     m_rng = std::default_random_engine(); // default seed=1
     m_normal = std::normal_distribution<Scalar>(0.0, 1.0);
     GlobalArray<Scalar4> bias_disp(m_pdata->getN(), m_exec_conf);
     m_bias_disp.swap(bias_disp);
     TAG_ALLOCATION(m_bias_disp);
+
+    if (m_mode == Mode::PARTICLE)
+        {
+        m_exec_conf->msg->notice(4) << "Creating Mimse" << std::endl;
+        }
+    else
+        {
+        m_exec_conf->msg->notice(4) << "Creating Mimse with molecule mode" << std::endl;
+        // print the number of molecules
+        auto bond_data = m_sysdef->getBondData();
+        m_exec_conf->msg->notice(4) << "Number of particles: " << m_pdata->getN() << std::endl;
+        m_exec_conf->msg->notice(4) << "Number of molecules: " << bond_data->getN() << std::endl;
+        }
     }
 
 Mimse::~Mimse()
@@ -538,8 +551,8 @@ namespace detail
  */
 void export_Mimse(pybind11::module& m)
     {
-    pybind11::class_<Mimse, ForceCompute, std::shared_ptr<Mimse>>(m, "Mimse")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, bool>())
+    pybind11::class_<Mimse, ForceCompute, std::shared_ptr<Mimse>> mimse(m, "Mimse");
+    mimse.def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, bool, Mimse::Mode>())
         .def("pushBackCurrentPos", &Mimse::pushBackCurrentPos)
         .def("pushBackBias", &Mimse::pushBackBiasArray)
         .def("popBackBias", &Mimse::popBackBias)
@@ -557,6 +570,11 @@ void export_Mimse(pybind11::module& m)
         .def("getComputes", &Mimse::getComputes)
         .def("getActiveBiases", &Mimse::getActiveBiases)
         .def("getNlistRebuilds", &Mimse::getNlistRebuilds);
+
+    pybind11::enum_<Mimse::Mode>(mimse, "mode")
+        .value("particle", Mimse::Mode::PARTICLE)
+        .value("molecule", Mimse::Mode::MOLECULE)
+        .export_values();
     }
 
     } // end namespace detail
@@ -566,8 +584,8 @@ void export_Mimse(pybind11::module& m)
 
 #ifdef ENABLE_HIP
 
-MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean)
-    : Mimse(sysdef, sigma, epsilon, bias_buffer, subtract_mean)
+MimseGPU::MimseGPU(std::shared_ptr<SystemDefinition> sysdef, Scalar sigma, Scalar epsilon, Scalar bias_buffer, bool subtract_mean, Mimse::Mode mode)
+    : Mimse(sysdef, sigma, epsilon, bias_buffer, subtract_mean, mode)
     {
     // only one GPU is supported
     if (!m_exec_conf->isCUDAEnabled())
@@ -767,7 +785,7 @@ void export_MimseGPU(pybind11::module& m)
     pybind11::class_<MimseGPU, Mimse, std::shared_ptr<MimseGPU>>(
         m,
         "MimseGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, bool>())
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, bool, Mimse::Mode>())
         .def("pushBackCurrentPos", &MimseGPU::pushBackCurrentPos);
     }
 

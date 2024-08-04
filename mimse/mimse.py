@@ -11,7 +11,7 @@ from hoomd.md.force import Force
 class Mimse(Force):
     """Mimse."""
 
-    def __init__(self, sigma, epsilon, bias_buffer=None, subtract_mean=True):
+    def __init__(self, sigma, epsilon, bias_buffer=None, subtract_mean=True, mode='particle'):
         assert subtract_mean in (True, False)
         assert sigma > 0
         assert epsilon > 0
@@ -19,23 +19,31 @@ class Mimse(Force):
         if bias_buffer is None:
             bias_buffer = sigma
 
+        if mode == 'particle':
+            mode = _mimse.Mimse.mode.particle
+        elif mode == 'molecule':
+            mode = _mimse.Mimse.mode.molecule
+        else:
+            raise ValueError("mode must be 'particle' or 'molecule'")
+
         # initialize base class
         super().__init__()
         self._sigma = sigma
         self._epsilon = epsilon
         self._subtract_mean = subtract_mean
         self._bias_buffer = bias_buffer
+        self._mode = mode
 
     def _attach_hook(self):
         # initialize the reflected c++ class
         if isinstance(self._simulation.device, hoomd.device.CPU):
             self._cpp_obj = _mimse.Mimse(
                 self._simulation.state._cpp_sys_def,
-                self._sigma, self._epsilon, self._bias_buffer, self._subtract_mean)
+                self._sigma, self._epsilon, self._bias_buffer, self._subtract_mean, self._mode)
         else:
             self._cpp_obj = _mimse.MimseGPU(
                 self._simulation.state._cpp_sys_def,
-                self._sigma, self._epsilon, self._bias_buffer, self._subtract_mean)
+                self._sigma, self._epsilon, self._bias_buffer, self._subtract_mean, self._mode)
             
     def push_back_current_pos(self):
         """Push back current positions."""
