@@ -40,7 +40,7 @@ for _ in range(n_iter):
 ### Dependencies
 
 * HOOMD-blue >= 4.6.0
-* CUDA >= 12.0 (sorry, no HIP at the moment due to use of CUDA graphs)
+* CUDA >= 12.0
 
 ### Setup
 
