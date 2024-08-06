@@ -176,14 +176,14 @@ pybind11::object Mimse::getBiases()
         const GlobalArray<Scalar4> &bias_pos_j = *m_biases_pos[j];
         ArrayHandle<Scalar4> h_bias(bias_pos_j, access_location::host, access_mode::read);
         
-        std::vector<vec3<double>> global_bias(dims[0]);
+        std::vector<vec3<Scalar>> global_bias(dims[0]);
 
         for (unsigned int i = 0; i < dims[0]; i++)
             {
-            global_bias[i] = vec3<double>(h_bias.data[i].x, h_bias.data[i].y, h_bias.data[i].z);
+            global_bias[i] = vec3<Scalar>(h_bias.data[i].x, h_bias.data[i].y, h_bias.data[i].z);
             }
 
-        pybind11::array_t<Scalar> bias_pos(dims, (double*)global_bias.data());
+        pybind11::array_t<Scalar> bias_pos(dims, (Scalar*)global_bias.data());
 
         biases.append(bias_pos);
         }
@@ -395,7 +395,7 @@ void Mimse::computeForces(uint64_t timestep)
             // subtract the mean displacement if flag is set
             if (m_subtract_mean)
                 {
-                mean_disp /= m_pdata->getN();
+                mean_disp /= (Scalar)m_pdata->getN();
                 for (unsigned int i = 0; i < m_pdata->getN(); i++)
                     {
                     h_bias_disp.data[i].x -= mean_disp.x;
@@ -414,10 +414,10 @@ void Mimse::computeForces(uint64_t timestep)
                 continue;
 
             // compute the force and apply it
-            Scalar r2inv = 1.0/square_norm;
+            Scalar r2inv = Scalar(1.0)/square_norm;
             Scalar sigma_square = m_sigma * m_sigma;
             Scalar term = (1 - square_norm / sigma_square);
-            Scalar force_divr = 4.0 * m_epsilon * term / sigma_square;
+            Scalar force_divr = Scalar(4.0) * m_epsilon * term / sigma_square;
 
             Scalar energy_div2r = m_epsilon * term * term * r2inv;
 
@@ -509,7 +509,7 @@ void Mimse::computeActiveBiases()
             // subtract the mean displacement if flag is set
             if (m_subtract_mean)
                 {
-                mean_disp /= m_pdata->getN();
+                mean_disp /= (Scalar)m_pdata->getN();
                 for (unsigned int i = 0; i < m_pdata->getN(); i++)
                     {
                     h_bias_disp.data[i].x -= mean_disp.x;
